@@ -2,6 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import { evaluateExactNwmainCloseSnapshot } from "./lib/nwmain-close-or-terminate-contract.mjs";
+import { fatalClose } from "./lib/nwmain-fatal-close.mjs";
 
 const CLOSE_TIMEOUT_MS = 15_000;
 const STAGE_TWO_GRACE_MS = 2_000;
@@ -9,7 +10,14 @@ const FORCE_WAIT_MS = 5_000;
 const [command, ...rawArgs] = process.argv.slice(2);
 const options = parseArgs(rawArgs);
 
-if (command === "dry-run") {
+if (["inspect", "close-fatal-dry-run", "close-fatal"].includes(command)) {
+  requireAllowedOptions(options, command === "inspect" ? [] : ["pid", "startedAtUtc", "report", "reportSha256"]);
+  if (command !== "inspect") {
+    positiveInteger(options.pid, "--pid"); isoTimestamp(options.startedAtUtc, "--startedAtUtc");
+    if (!options.report || !/^[a-f0-9]{64}$/.test(options.reportSha256 ?? "")) throw Error("Exact --report and --reportSha256 required");
+  }
+  print(fatalClose({command,...options}));
+} else if (command === "dry-run") {
   requireAllowedOptions(options, []);
   print({
     ok: true,
@@ -17,6 +25,8 @@ if (command === "dry-run") {
     requiredArguments: ["--pid", "--startedAtUtc"],
     timeoutMs: CLOSE_TIMEOUT_MS,
     publicCommands: ["close", "close-or-terminate"],
+    fatalDialogCommands: ["inspect", "close-fatal-dry-run", "close-fatal"],
+    fatalDialogArguments: ["--pid", "--startedAtUtc", "--report", "--reportSha256"],
     transport: "targeted PostMessage(WM_CLOSE)",
     stageTwoGraceMs: STAGE_TWO_GRACE_MS,
     transportStages: [

@@ -168,19 +168,19 @@ export function parseGff(input, expectedFileType = undefined) {
   return parsed;
 }
 
-function requiredResource(archive, resref, type) {
+export function requiredResource(archive, resref, type) {
   const matches = archive.resources.filter((resource) => resource.resref === resref.toLowerCase() && resource.type === type);
   assert.equal(matches.length, 1, `diagnostic_module_resource_missing_or_ambiguous:${resref}:${type}`);
   return matches[0].bytes;
 }
 
-function requiredField(struct, label) {
+export function requiredField(struct, label) {
   const matches = struct?.fields?.filter((field) => field.label === label) ?? [];
   assert.equal(matches.length, 1, `gff_field_missing_or_ambiguous:${label}`);
   return matches[0];
 }
 
-function readString(field) {
+export function readString(field) {
   const { bytes, header } = fieldContext(field);
   const offset = header.fieldDataOffset + field.dataOrOffset;
   if (field.typeId === FIELD_TYPE.CEXOSTRING) {
@@ -215,7 +215,7 @@ function readString(field) {
   assert.fail(`gff_string_field_type_invalid:${field.label}:${field.typeId}`);
 }
 
-function readInteger(field) {
+export function readInteger(field) {
   if (field.typeId === FIELD_TYPE.BYTE || field.typeId === FIELD_TYPE.CHAR) return field.dataOrOffset & 0xff;
   if (field.typeId === FIELD_TYPE.WORD || field.typeId === FIELD_TYPE.SHORT) return field.dataOrOffset & 0xffff;
   if (field.typeId === FIELD_TYPE.DWORD) return field.dataOrOffset >>> 0;
@@ -223,14 +223,14 @@ function readInteger(field) {
   assert.fail(`gff_integer_field_type_invalid:${field.label}:${field.typeId}`);
 }
 
-function readFloat(field) {
+export function readFloat(field) {
   assert.equal(field.typeId, FIELD_TYPE.FLOAT, `gff_float_field_type_invalid:${field.label}`);
   const buffer = Buffer.allocUnsafe(4);
   buffer.writeUInt32LE(field.dataOrOffset, 0);
   return buffer.readFloatLE(0);
 }
 
-function readList(field, parsed) {
+export function readList(field, parsed) {
   assert.equal(field.typeId, FIELD_TYPE.LIST, `gff_list_field_type_invalid:${field.label}`);
   const offset = parsed.header.listIndicesOffset + field.dataOrOffset;
   assertRange(parsed.bytes, offset, 4, `gff_list_count:${field.label}`);

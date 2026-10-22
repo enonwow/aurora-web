@@ -6,10 +6,13 @@ import { parseErfArchive } from "./aurora-model-proof-120s-erf-gff-readback.mjs"
 const CACHE_VERSION = "aurora-toolset-exact-temp0-cache/v1";
 const ADMISSION_VERSION = "aurora-toolset-verified-temp0-recovery-admission/v1";
 const RESOURCE_EXTENSIONS = new Map([
+  [2009, "nss"],
+  [2010, "ncs"],
   [2012, "are"],
   [2014, "ifo"],
   [2023, "git"],
   [2027, "utc"],
+  [2030, "itp"],
   [2038, "fac"],
   [2046, "gic"],
 ]);

@@ -1,0 +1,7 @@
+# Exact owned NWN foreground operation
+
+Scope: add a public opt-in foreground operation for an already S07-placed NWN window. A physical capture of Drain Life V7 was refused because Discord covered every probe point. The consuming user's standing instruction authorizes bringing owned NWN to the front on the non-primary display; no other window may be moved, minimized, closed or addressed for mutation.
+
+This is a Win32 window-operation change, not an unknown Aurora renderer semantic or a frontend/backend feature. No GPL code is involved. Tests first cover identity, authorization, modals and monitor input; the live operation separately guards exact StartTime ticks, HWND, monitor and full bounds immediately before mutation and again afterward. Keep the existing capture refusal and retry only after a documented foreground transition. Do not change capture validation.
+
+Public interface: `foreground-owned-nwmain.mjs dry-run|foreground --runtimeDir <prepared S07 runtime directory> --authorization <standing user authorization>`. It binds saved profile, module/HAK hashes, S07 observation and verified placement. It requests SetForegroundWindow and HWND_TOP for the exact NWN window without changing its geometry or making it permanently topmost. It reports the actual foreground HWND; a refused foreground request is not reported as success. Keyboard, mouse, cursor, other-window mutation and repeated focus forcing are excluded.
