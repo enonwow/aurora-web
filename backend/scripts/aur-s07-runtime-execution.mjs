@@ -6,10 +6,14 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { selectFreshLogSlice } from "./lib/aurora-model-proof-120s-contract.mjs";
+import { validateGeometryArtifact } from "./lib/aurora-binary-entry-surface-workflow.mjs";
+import { assertRuntimeGeometryBinding } from "./lib/aur-s07-entry-geometry-binding.mjs";
+import { prepareRuntimeWindow, validateRuntimeWindowPolicy } from "./lib/aur-s07-runtime-window-contract.mjs";
 
 const SCRIPT_DIR = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const TEST_MODULE_ATOM = resolve(SCRIPT_DIR, "aurora-toolset-test-module-nonblocking.mjs");
 const RESTORE_TOOLSET_FRAME_ATOM = resolve(SCRIPT_DIR, "restore-aurora-toolset-frame-noactivate.mjs");
+const PREPARE_RUNTIME_WINDOW_ATOM = resolve(SCRIPT_DIR, "prepare-nwmain-proof-window-no-global-input.mjs");
 const CENTRAL_TEST_MODULE_MODE = "central_guarded_test_module_action";
 const USER_TEST_MODULE_MODE = "user_owned_test_module_action";
 const BASE_ARTIFACT_KINDS = Object.freeze(["runtime-observation", "runtime-capture", "engine-load-log"]);
@@ -56,6 +60,19 @@ switch (command) {
     requireOutDir();
     observe(profile, outDir, requiredPath(options.handoff, "--handoff"));
     break;
+  case "prepare-runtime-window-dry-run":
+  case "prepare-runtime-window":
+    print(prepareRuntimeWindow({ profile, profileSha256, outputDirectory: requireOutDir(), dryRun: command.endsWith("-dry-run") }, {
+      loadEvidence: loadRuntimeWindowEvidence,
+      readState: readRuntimeWindowState,
+      exists: existsSync,
+      now: () => new Date().toISOString(),
+      writeExclusive: (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx" }),
+      prepare: ({ pid, startedAtUtc, expectedDevice, expectedHwnd }) => JSON.parse(execFileSync(process.execPath,
+        [PREPARE_RUNTIME_WINDOW_ATOM, "prepare", "--pid", String(pid), "--startedAtUtc", startedAtUtc, "--expectedDevice", expectedDevice, "--expectedHwnd", String(expectedHwnd)],
+        { encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 1024 * 1024 })),
+    }));
+    break;
   case "baseline-engine-log":
     baselineEngineLog(profile, requireOutDir());
     break;
@@ -72,7 +89,58 @@ switch (command) {
     validatePacket(profile, readJson(requiredPath(options.packet, "--packet")));
     break;
   default:
-    throw new Error("Use: dry-run, arm, dispatch-test-module, observe, baseline-engine-log, capture-engine-log, record-visual-review, assemble-packet, or validate.");
+    throw new Error("Use: dry-run, arm, dispatch-test-module, observe, prepare-runtime-window-dry-run, prepare-runtime-window, baseline-engine-log, capture-engine-log, record-visual-review, assemble-packet, or validate.");
+}
+
+function loadRuntimeWindowEvidence() {
+  assertFileHash(profilePath, profileSha256, "runtime_window_profile_changed");
+  assertFileHash(profile.module.path, profile.module.sha256, "runtime_window_module_changed");
+  assertOrderedHakHashes(profile.orderedHakList);
+  assertFileHash(resolve(profile.geometryGate.artifact), profile.geometryGate.sha256, "runtime_window_geometry_gate_changed");
+  const names = { request: "launch-request", dispatch: "test-module-dispatch", handoff: "handoff", observation: "observation" };
+  const evidence = { bindings: {} };
+  for (const [kind, name] of Object.entries(names)) {
+    const path = resolve(outDir, `aur-s07-runtime-${name}.json`);
+    const bytes = readFileSync(path);
+    evidence[kind] = JSON.parse(bytes.toString("utf8"));
+    evidence.bindings[kind] = { path, sha256: sha256Bytes(bytes) };
+  }
+  return evidence;
+}
+
+function readRuntimeWindowState() {
+  // Read-only admission; all placement remains in the existing owned atom.
+  const source = String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @'
+using System;using System.Runtime.InteropServices;
+public static class S07WindowRead {
+ public delegate bool E(IntPtr h,IntPtr l);
+ [StructLayout(LayoutKind.Sequential)]public struct R{public int Left,Top,Right,Bottom;}
+ [DllImport("user32.dll")]public static extern bool EnumWindows(E c,IntPtr l);
+ [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
+ [DllImport("user32.dll")]public static extern bool IsIconic(IntPtr h);
+ [DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out R r);
+ [DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);
+}
+'@
+function B($r){[pscustomobject]@{left=$r.Left;top=$r.Top;right=$r.Right;bottom=$r.Bottom;width=$r.Width;height=$r.Height}}
+$native=@(Get-CimInstance Win32_Process -Filter "Name='nwmain.exe'")
+$processes=@(Get-Process nwmain -ErrorAction SilentlyContinue|ForEach-Object{$p=$_;$c=@($native|Where-Object{$_.ProcessId-eq$p.Id});if($c.Count-ne1){throw 'runtime_window_cim_identity_missing'};[pscustomobject]@{pid=$p.Id;name=$p.ProcessName.ToLowerInvariant();startedAt=$p.StartTime.ToUniversalTime().ToString('o');responding=$p.Responding;mainWindowHandle=$p.MainWindowHandle.ToInt64();parentPid=[int]$c[0].ParentProcessId;commandLine=$c[0].CommandLine}})
+$parents=@(Get-Process nwtoolset -ErrorAction SilentlyContinue|ForEach-Object{[pscustomobject]@{pid=$_.Id;name=$_.ProcessName.ToLowerInvariant();startedAt=$_.StartTime.ToUniversalTime().ToString('o');responding=$_.Responding}})
+$window=$null;$script:visible=@()
+if($processes.Count-eq1-and$processes[0].mainWindowHandle-gt0){
+ $p=$processes[0];$h=[IntPtr]$p.mainWindowHandle;[uint32]$owner=0;[void][S07WindowRead]::GetWindowThreadProcessId($h,[ref]$owner)
+ $r=New-Object 'S07WindowRead+R';if(-not[S07WindowRead]::GetWindowRect($h,[ref]$r)){throw 'runtime_window_rect_unavailable'}
+ $window=[pscustomobject]@{hwnd=$h.ToInt64();ownerPid=$owner;visible=[S07WindowRead]::IsWindowVisible($h);iconic=[S07WindowRead]::IsIconic($h);bounds=[pscustomobject]@{left=$r.Left;top=$r.Top;right=$r.Right;bottom=$r.Bottom;width=$r.Right-$r.Left;height=$r.Bottom-$r.Top}}
+ $script:targetPid=[uint32]$p.pid
+ [void][S07WindowRead]::EnumWindows([S07WindowRead+E]{param($w,$l);[uint32]$q=0;[void][S07WindowRead]::GetWindowThreadProcessId($w,[ref]$q);if($q-eq$script:targetPid-and[S07WindowRead]::IsWindowVisible($w)){$script:visible += [pscustomobject]@{hwnd=$w.ToInt64();ownerPid=$q}};$true},[IntPtr]::Zero)
+}
+$screens=@([Windows.Forms.Screen]::AllScreens|ForEach-Object{[pscustomobject]@{deviceName=$_.DeviceName;primary=$_.Primary;bounds=(B $_.Bounds);workingArea=(B $_.WorkingArea)}})
+[pscustomobject]@{capturedAtUtc=[DateTime]::UtcNow.ToString('o');processes=$processes;parents=$parents;window=$window;visibleWindows=$script:visible;screens=$screens}|ConvertTo-Json -Depth 8 -Compress
+`;
+  return JSON.parse(execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", source], { encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 1024 * 1024 }).trim());
 }
 
 function dispatchTestModule(profile, outDir) {
@@ -148,6 +216,7 @@ function collectPacketFailures(profile, packet) {
 }
 
 function validateProfile(profile) {
+  validateRuntimeWindowPolicy(profile.runtimeWindow);
   if (profile.version !== "aur-s07-runtime-profile/v1" || !profile.id) throw new Error("runtime_profile_identity_invalid");
   if (!/^[a-f0-9]{64}$/u.test(profile.module?.sha256 ?? "") || !profile.module?.area || !Array.isArray(profile.module?.entryPoint)) throw new Error("runtime_profile_module_invalid");
   if (
@@ -163,6 +232,7 @@ function validateProfile(profile) {
     profile.geometryGate.sha256,
     "area_geometry_gate_hash_mismatch"
   );
+  assertRuntimeGeometryBinding(profile, validateGeometryArtifact(resolve(profile.geometryGate.artifact)));
   if (![USER_TEST_MODULE_MODE, CENTRAL_TEST_MODULE_MODE].includes(profile.launch?.mode) || profile.launch?.processName !== "nwmain") throw new Error("runtime_profile_launch_contract_invalid");
   if (profile.launch.mode === CENTRAL_TEST_MODULE_MODE && (!profile.module.path || !resolve(profile.module.path).toLowerCase().endsWith(".mod") || !existsSync(resolve(profile.module.path)))) throw new Error("runtime_profile_module_path_invalid");
   if (!Array.isArray(profile.fixtures) || profile.fixtures.length === 0 || !Array.isArray(profile.orderedHakList)) throw new Error("runtime_profile_fixture_or_hak_invalid");

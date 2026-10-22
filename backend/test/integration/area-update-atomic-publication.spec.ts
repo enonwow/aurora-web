@@ -2899,7 +2899,7 @@ describe("Area Update atomic publication integration", () => {
     });
   });
 
-  it("atomically publishes exact retained Trigger Tag, LocalizedName, and paired-GIC Comment while preserving IFO bytes", async () => {
+  it("atomically publishes exact retained Trigger identity, transition storage, and paired-GIC Comment while preserving IFO", async () => {
     const harness = await createHarness({ triggerTagMutation: true });
 
     const result = await harness.coordinator.execute({
@@ -2927,6 +2927,15 @@ describe("Area Update atomic publication integration", () => {
     const localizedName = triggerList?.type === "list"
       ? triggerList.value[0]?.fields.find((field) => field.label === "LocalizedName")
       : undefined;
+    const linkedTo = triggerList?.type === "list"
+      ? triggerList.value[0]?.fields.find((field) => field.label === "LinkedTo")
+      : undefined;
+    const linkedToFlags = triggerList?.type === "list"
+      ? triggerList.value[0]?.fields.find((field) => field.label === "LinkedToFlags")
+      : undefined;
+    const loadScreenId = triggerList?.type === "list"
+      ? triggerList.value[0]?.fields.find((field) => field.label === "LoadScreenID")
+      : undefined;
     const gicTriggerList = parseRawGffDocument(gic)!.fields.find(
       (field) => field.label === "TriggerList",
     );
@@ -2946,6 +2955,21 @@ describe("Area Update atomic publication integration", () => {
         strRef: 0xffff_ffff,
         entries: [{ languageId: 0, text: "Inner Gate Trigger" }],
       },
+    });
+    expect(linkedTo).toEqual({
+      label: "LinkedTo",
+      type: "cexostring",
+      value: "crypt_exit",
+    });
+    expect(linkedToFlags).toEqual({
+      label: "LinkedToFlags",
+      type: "byte",
+      value: 4,
+    });
+    expect(loadScreenId).toEqual({
+      label: "LoadScreenID",
+      type: "word",
+      value: 321,
     });
     expect(editorComment).toEqual({
       label: "Comment",
@@ -4537,6 +4561,18 @@ async function createHarness(options: Readonly<{
                                                expectedValue: "TriggerList",
                                                value: "  West gate\r\ne\u0301  ",
                                              },
+                                             transitionStorage: {
+                                               expectedValue: {
+                                                 linkedTo: "east_gate",
+                                                 linkedToFlags: 2,
+                                                 loadScreenId: 7,
+                                               },
+                                               value: {
+                                                 linkedTo: "crypt_exit",
+                                                 linkedToFlags: 4,
+                                                 loadScreenId: 321,
+                                               },
+                                             },
                                              }]
                                          : options.waypointTagMutation
                                            ? [{
@@ -5743,6 +5779,9 @@ function objectPair(options: Readonly<{
                       geometryPoint(0, 0, 3.125),
                     ],
                   },
+                  { label: "LinkedTo", type: "cexostring" as const, value: "east_gate" },
+                  { label: "LinkedToFlags", type: "byte" as const, value: 2 },
+                  { label: "LoadScreenID", type: "word" as const, value: 7 },
                 ] : label === "Door List" ? [
                   { label: "LinkedTo", type: "cexostring" as const, value: "OLD_DEST" },
                   { label: "LinkedToFlags", type: "byte" as const, value: 1 },

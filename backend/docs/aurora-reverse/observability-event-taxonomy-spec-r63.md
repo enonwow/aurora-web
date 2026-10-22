@@ -1212,3 +1212,21 @@ ordinals, hashes, paths, source/storage keys, raw fields or bytes,
 credentials, and host paths are prohibited from event fields and metric
 labels. A telemetry sink failure must not alter validation, mutation,
 transaction, rollback, recovery, or publication behavior.
+
+## 62. Existing Area Trigger ordered VarTable CAS extension (2026-09-05)
+
+The additive `area_trigger_variable_table_cas.v1` event covers exact source
+parsing, bounded ordered-entry admission, immutable-ordinal planning,
+candidate write, and readback. Required low-cardinality fields are
+`operation=parse_source|plan|write|readback`,
+`outcome=succeeded|failed`, stable `resultCode`, `changedEntryCount`, and
+`durationMs`.
+
+Stable failures distinguish malformed or unsupported source, invalid or
+unchanged pair, stale expected table, wrong family or ordinal, deletion
+collision, duplicate mutation, candidate/persisted readback drift, and
+preservation drift. Variable names and values, object IDs, ordinals, hashes,
+paths, source/storage keys, raw fields or bytes, credentials, and host paths
+are prohibited from event fields and metric labels. A telemetry sink failure
+must not alter validation, mutation, transaction, rollback, recovery, or
+publication behavior.

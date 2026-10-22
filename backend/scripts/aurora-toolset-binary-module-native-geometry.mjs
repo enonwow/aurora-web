@@ -26,6 +26,14 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
 const [command, ...argv] = process.argv.slice(2);
+// Saved-file inspection must never enter the native preflight/error handler,
+// including malformed or currently unsupported entry-surface commands.
+if (String(command ?? "").startsWith("geometry-entry-surface-") || command === "geometry-finalize" || command === "validate-geometry") {
+  const { runEntrySurfaceInspectCommand } = await import("./lib/aurora-binary-entry-surface-inspection.mjs");
+  const result = runEntrySurfaceInspectCommand(command, argv);
+  print(result);
+  process.exit(result.ok ? 0 : 2);
+}
 const options = parseArgs(argv);
 const profilePath = requiredPath(options.profile, "--profile");
 const outDir = requiredPath(options.outDir, "--outDir");
@@ -1486,7 +1494,9 @@ function observeGeometry(area) {
   if (!nativeSave.areaWasSaved || nativeSave.invalidLocationsDialog || nativeSave.inaccessibleObjectsDialog) fail("area_geometry_invalid", JSON.stringify(nativeSave));
 
   const postSaveProfile = JSON.parse(JSON.stringify(profile));
-  postSaveProfile.module.sha256 = sha256(profile.module.path);
+  const postSaveModuleBytes = readFileSync(profile.module.path);
+  postSaveProfile.module.sha256 = createHash("sha256").update(postSaveModuleBytes).digest("hex");
+  postSaveProfile.module.bytes = postSaveModuleBytes.length;
   const stagedProfilePath = resolve(outDir, "post-native-save-binary-bootstrap-profile.json");
   writeJson(stagedProfilePath, postSaveProfile);
   const postSaveStructural = atom("validate-aurora-toolset-binary-module-bootstrap.mjs", ["--mode", "preflight", "--profile", stagedProfilePath]);
@@ -1594,7 +1604,7 @@ function baseManifest(area) { return { version: "aurora-toolset-binary-native-ge
 function requireManifest(status) { if (!existsSync(manifestPath)) fail("BINARY_NATIVE_GEOMETRY_MANIFEST_MISSING", manifestPath); const value = readJson(manifestPath); if (value.status !== status || value.profileSha256 !== sha256(profilePath)) fail("BINARY_NATIVE_GEOMETRY_MANIFEST_STATE_INVALID", JSON.stringify({ expected: status, actual: value.status })); return value; }
 function assertNoToolsetProcess() { const processes = toolsetProcesses(); if (processes.length !== 0) fail("STALE_TOOLSET_SESSION_REJECTED", JSON.stringify({ processes, message: "This binary route never reuses a pre-existing Toolset session; preserve it and start no second process." })); }
 function assertNoNwnProcess() { const processes = nwnProcesses(); if (processes.length !== 0) fail("STALE_NWN_SESSION_REJECTED", JSON.stringify({ processes, message: "The failed-startup archive transition requires zero NWN processes; it never reuses or closes one." })); }
-function toolsetProcesses() { const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", "@(Get-Process nwtoolset -ErrorAction SilentlyContinue | Select-Object Id,StartTime,MainWindowTitle,Responding) | ConvertTo-Json -Compress"], { encoding: "utf8", windowsHide: true, timeout: 15000 }).trim(); if (!raw) return []; const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : [parsed]; }
+function toolsetProcesses() { const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", "@(Get-Process nwtoolset -ErrorAction SilentlyContinue | Select-Object Id,StartTime,@{Name='StartTimeUtc';Expression={$_.StartTime.ToUniversalTime().ToString('o')}},MainWindowTitle,Responding) | ConvertTo-Json -Compress"], { encoding: "utf8", windowsHide: true, timeout: 15000 }).trim(); if (!raw) return []; const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : [parsed]; }
 function nwnProcesses() { const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", "@(Get-Process nwmain -ErrorAction SilentlyContinue | Select-Object Id,StartTime,MainWindowTitle,Responding) | ConvertTo-Json -Compress"], { encoding: "utf8", windowsHide: true, timeout: 15000 }).trim(); if (!raw) return []; const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : [parsed]; }
 function toolsetProcessesSafe() { try { return toolsetProcesses(); } catch (error) { return [{ inspectionError: String(error?.message ?? error) }]; } }
 function visibleWindowsSafe() { const result = runAtomResult("inspect-aurora-toolset-visible-windows-no-global-input.mjs", []); return result.ok === true ? result : { inspectionError: result }; }

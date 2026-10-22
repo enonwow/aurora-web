@@ -18,6 +18,7 @@ public static class AuroraFrameRestore {
  [DllImport("user32.dll")]public static extern bool EnumWindows(E c,IntPtr l);
  [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
  [DllImport("user32.dll")]public static extern bool IsIconic(IntPtr h);
+ [DllImport("user32.dll")]public static extern bool IsZoomed(IntPtr h);
  [DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder b,int n);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetClassName(IntPtr h,StringBuilder b,int n);
@@ -32,16 +33,16 @@ function Rect([IntPtr]$h){$r=New-Object 'AuroraFrameRestore+R';if(-not[AuroraFra
 $ps=@(Get-Process nwtoolset -ErrorAction SilentlyContinue);if($ps.Count-ne1-or-not$ps[0].Responding){throw 'expected_one_responding_toolset'};[uint32]$pid=$ps[0].Id
 $script:frames=@();[void][AuroraFrameRestore]::EnumWindows([AuroraFrameRestore+E]{param($h,$l);[uint32]$q=0;[void][AuroraFrameRestore]::GetWindowThreadProcessId($h,[ref]$q);if($q-eq$pid-and(Class $h)-eq'TfrmFrame'-and(Text $h).TrimEnd('*').EndsWith(" - $env:AFR_MODULE",[StringComparison]::OrdinalIgnoreCase)){$script:frames+=$h};$true},[IntPtr]::Zero)
 if($script:frames.Count-ne1){throw "exact_frame_count:$($script:frames.Count)"};$frame=$script:frames[0]
-$before=[pscustomobject]@{visible=[AuroraFrameRestore]::IsWindowVisible($frame);iconic=[AuroraFrameRestore]::IsIconic($frame);bounds=Rect $frame;monitor=[Windows.Forms.Screen]::FromHandle($frame).DeviceName}
+$before=[pscustomobject]@{visible=[AuroraFrameRestore]::IsWindowVisible($frame);iconic=[AuroraFrameRestore]::IsIconic($frame);maximized=[AuroraFrameRestore]::IsZoomed($frame);bounds=Rect $frame;monitor=[Windows.Forms.Screen]::FromHandle($frame).DeviceName}
 $restored=$false;$placed=$false
-if(-not$before.visible){
+if(-not$before.visible-or($env:AFR_ENSURE_NONPRIMARY-eq'true'-and$before.maximized)){
  [void][AuroraFrameRestore]::ShowWindow($frame,4)
  $restored=$true
- for($attempt=0;$attempt-lt20;$attempt++){Start-Sleep -Milliseconds 25;if([AuroraFrameRestore]::IsWindowVisible($frame)-and-not[AuroraFrameRestore]::IsIconic($frame)){break}}
- if(-not[AuroraFrameRestore]::IsWindowVisible($frame)-or[AuroraFrameRestore]::IsIconic($frame)){throw 'frame_show_noactivate_failed'}
+ for($attempt=0;$attempt-lt20;$attempt++){Start-Sleep -Milliseconds 25;if([AuroraFrameRestore]::IsWindowVisible($frame)-and-not[AuroraFrameRestore]::IsIconic($frame)-and-not[AuroraFrameRestore]::IsZoomed($frame)){break}}
+ if(-not[AuroraFrameRestore]::IsWindowVisible($frame)-or[AuroraFrameRestore]::IsIconic($frame)-or[AuroraFrameRestore]::IsZoomed($frame)){throw 'frame_show_noactivate_failed'}
 }
 $current=[Windows.Forms.Screen]::FromHandle($frame);$currentBounds=Rect $frame
-if($env:AFR_ENSURE_NONPRIMARY-eq'true'-and$current.Primary){
+if($env:AFR_ENSURE_NONPRIMARY-eq'true'-and($current.Primary-or$currentBounds.left-lt$current.WorkingArea.Left-or$currentBounds.top-lt$current.WorkingArea.Top-or$currentBounds.right-gt$current.WorkingArea.Right-or$currentBounds.bottom-gt$current.WorkingArea.Bottom)){
  $targets=@([Windows.Forms.Screen]::AllScreens|Where-Object{-not$_.Primary});if($targets.Count-ne1){throw "expected_one_nonprimary_screen:$($targets.Count)"};$target=$targets[0];$work=$target.WorkingArea
  $offsetX=[Math]::Max(0,$currentBounds.left-$current.Bounds.Left);$offsetY=[Math]::Max(0,$currentBounds.top-$current.Bounds.Top)
  $width=[Math]::Min($currentBounds.width,$work.Width);$height=[Math]::Min($currentBounds.height,$work.Height)
@@ -52,7 +53,7 @@ $afterBounds=Rect $frame;$afterScreen=[Windows.Forms.Screen]::FromHandle($frame)
 if(-not[AuroraFrameRestore]::IsWindowVisible($frame)-or[AuroraFrameRestore]::IsIconic($frame)){throw 'frame_restore_visibility_failed'}
 if($env:AFR_ENSURE_NONPRIMARY-eq'true'-and$afterScreen.Primary){throw 'frame_restore_nonprimary_failed'}
 $workAfter=$afterScreen.WorkingArea;if($afterBounds.left-lt$workAfter.Left-or$afterBounds.top-lt$workAfter.Top-or$afterBounds.right-gt$workAfter.Right-or$afterBounds.bottom-gt$workAfter.Bottom){throw 'frame_restore_bounds_outside_working_area'}
-[pscustomobject]@{ok=$true;processId=$pid;frameHwnd=$frame.ToInt64();module=$env:AFR_MODULE;before=$before;after=[pscustomobject]@{visible=$true;iconic=$false;bounds=$afterBounds};restored=$restored;placedOnNonPrimary=$placed;monitor=[pscustomobject]@{deviceName=$afterScreen.DeviceName;primary=$afterScreen.Primary};safety=[pscustomobject]@{globalCursor=$false;globalKeyboard=$false;globalMouse=$false;activatesFrame=$false;changesFramePlacement=$placed;usesNoActivate=$true;usesNoZOrderChange=$true;method='exact TfrmFrame SW_SHOWNOACTIVATE plus optional exact-frame SetWindowPos to sole non-primary working area with SWP_NOACTIVATE|SWP_NOZORDER'}}|ConvertTo-Json -Depth 7 -Compress
+[pscustomobject]@{ok=$true;processId=$pid;frameHwnd=$frame.ToInt64();module=$env:AFR_MODULE;before=$before;after=[pscustomobject]@{visible=$true;iconic=$false;maximized=[AuroraFrameRestore]::IsZoomed($frame);bounds=$afterBounds};restored=$restored;placedOnNonPrimary=$placed;monitor=[pscustomobject]@{deviceName=$afterScreen.DeviceName;primary=$afterScreen.Primary};safety=[pscustomobject]@{globalCursor=$false;globalKeyboard=$false;globalMouse=$false;activatesFrame=$false;changesFramePlacement=$placed;usesNoActivate=$true;usesNoZOrderChange=$true;method='exact TfrmFrame SW_SHOWNOACTIVATE plus optional exact-frame SetWindowPos to sole non-primary working area with SWP_NOACTIVATE|SWP_NOZORDER'}}|ConvertTo-Json -Depth 7 -Compress
 `;
 
 const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", source], {

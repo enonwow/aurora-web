@@ -13013,3 +13013,45 @@ Add/Render rows, 44,692 connection rows, 9,100 group rows, 8,669
 named-blocked rows, and zero accepted PathConnect rows. No Docker command,
 service, watcher, browser/Chrome, capture, Toolset/NWN process, mutation test,
 sub-agent, xoreos source, or other GPL source was used.
+
+## Checkpoint 245 — retained Trigger raw transition-storage tuple exact CAS (2026-09-05)
+
+Capability revision `2026-09-02.178` closes the bounded offline storage lane
+for exact retained Trigger `LinkedTo : CExoString`, `LinkedToFlags : Byte`, and
+`LoadScreenID : Word` members. Primary common and placed Trigger reader/writer
+evidence proves the labels, types, ownership, and round-trip storage shape. The
+contract admits only one complete exact tuple and preserves it as uninterpreted
+raw storage. Partial, absent, duplicate, wrong-case, wrong-type, malformed,
+over-budget, stale, or unchanged tuples cannot authorize mutation. Destination
+kind, flag meaning, target validity, loading-screen catalog identity, and NWN
+traversal behavior are explicitly outside this offline claim.
+
+Backend parsing and dependency identity, detached expected/target projection,
+immutable type-`1` ordinal planning, three-field CAS replacement, complete
+candidate and persisted readback, content-free best-effort telemetry, and
+revision-fenced ARE/GIT/GIC/IFO publication are implemented. Frontend HTTP and
+scene mapping, immutable provenance, saved drafts and clone/history, visible
+raw `ACTIVE_NOW`/`PRESERVE_ONLY` controls, reducer/materializer,
+facade/viewport routing, and Apply/Cancel/reopen/OK/local-Save behavior are
+implemented. The transition tuple composes atomically with the other admitted
+Trigger changes while preserving unrelated fields and resources.
+
+The affected backend suites pass `1705/1705`, full Area Update integration
+passes `88/88`, affected frontend tests pass `1294/1294`, full regression-
+smoke passes `137/137`, and both production builds pass. Full frontend unit
+passes `5893/5895`; the same two deterministic out-of-slice failures remain in
+the Placeable render-package shape and renderer material-side expectations.
+They remain global blockers rather than being hidden by this green bounded
+slice.
+
+The Level 4 Area program remains incomplete. Fresh guarded browser Save/reopen,
+exact-candidate Toolset Save/Build/reopen with packed GIT inspection, native
+transition semantics, targeted NWN traversal/loading-screen proof, remaining
+Trigger properties/variables/activation, the `0/3380` 99-tileset matrix,
+independent PathConnect/WOK proof, and final release certification remain open.
+Runtime profile v31 is historical after these production source writes; a new
+immutable profile and capture must bind the eventual final source state, so no
+replacement profile was generated during this continuing implementation lane.
+No Docker command, container, service, watcher, browser/Chrome, capture,
+Toolset/NWN process, mutation test, sub-agent, xoreos source, or other GPL
+source was used.

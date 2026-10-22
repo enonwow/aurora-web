@@ -2455,3 +2455,40 @@ Ready replacement plan
 replaces v30 and remains `0/3380` with zero accepted PathConnect rows. No
 Docker command, service, watcher, browser/capture, Toolset/NWN process,
 mutation test, sub-agent, xoreos source, or other GPL source was used.
+
+## Existing retained Trigger raw transition-storage checkpoint — 2026-09-05
+
+Checkpoint `245` and capability revision `2026-09-02.178` implement one exact
+all-or-nothing retained Trigger tuple: `LinkedTo : CExoString`,
+`LinkedToFlags : Byte`, and `LoadScreenID : Word`. Immutable primary
+reader/writer evidence closes the labels, types, ownership, and storage
+round-trip boundary. The implementation deliberately treats all three as raw
+storage; it does not infer destination type, decode flags, validate a target,
+resolve a loading-screen catalog row, or claim NWN traversal behavior.
+
+The implemented path covers strict source parsing and fingerprint identity,
+detached provenance, source/target projection, immutable type-`1` ordinal
+planning, exact three-field CAS writing, whole-candidate and persisted
+readback, content-free best-effort telemetry, visible raw Trigger Properties
+controls, frontend drafts/history, one Apply/Cancel/reopen/OK/local-Save flow,
+and revision-fenced ARE/GIT/GIC/IFO publication. Unrelated Trigger fields and
+resources remain preserved, and the tuple composes with other independently
+admitted Trigger mutations.
+
+Affected backend tests pass `1705/1705`, Area Update integration passes
+`88/88`, affected frontend tests pass `1294/1294`, full regression-smoke
+passes `137/137`, and both production builds pass. Full frontend unit remains
+globally red at `5893/5895` because of the same two pre-existing out-of-slice
+expectation failures in Placeable render-package shape and renderer material
+side; neither failure exercises Trigger transition storage.
+
+The Area program remains `missing`, not complete. Fresh browser Save/reopen,
+Toolset Save/Build/reopen with packed GIT readback, native transition semantics,
+targeted NWN traversal/loading-screen proof, remaining Trigger properties,
+variables and activation, 99-tileset Add/Render and adjacency evidence,
+independent PathConnect/WOK proof, and final certification remain open. Runtime
+profile v31 is now historical after production source writes; the next
+immutable profile must be generated only after the continuing source-writing
+lane settles. No Docker command, container, service, watcher, browser/capture,
+Toolset/NWN process, mutation test, sub-agent, xoreos source, or other GPL
+source was used.
