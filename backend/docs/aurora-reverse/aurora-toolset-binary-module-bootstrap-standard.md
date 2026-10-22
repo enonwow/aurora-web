@@ -2,6 +2,26 @@
 
 Status: `CENTRAL CONSUMER ROUTE / structural preflight plus native-geometry route; no visual or runtime proof claimed`
 
+A pre-launch `toolset_temp0_requires_clean_start` failure may use
+`restart-after-verified-cache-close-dry-run`, followed by
+`restart-after-verified-cache-close`, on this public binary route. Pass the
+unchanged `--profile`, `--outDir`, plus `--recoveryManifest` and `--closeReceipt`.
+Admission requires the other cache's exact saved-module recovery, one
+acknowledged recovery action, exact owned graceful close without force,
+unchanged saved modules, absent cache and zero Toolset/NWN/server processes.
+It only preserves the original failed packet under `restart-history` and
+records the changed state. Then run the original candidate's preflight/open.
+Never reuse this transition for a native open failure or unchanged cache.
+NSS, NCS and ITP are supported exact-cache resources; byte/file-set checks are
+unchanged. Evidence and scope: `docs/brainstorm/verified-cache-restart.md` and
+`docs/brainstorm/verified-script-cache.md`.
+
+For an original zero-action startup timeout whose same hidden frame has since
+been restored to a clean Welcome, use the profile-bound two-step
+[`resume-restored-startup-welcome` contract](aurora-startup-welcome-resume-2026-09-08.md).
+It preserves the failure packet and reuses the exact process; it is not a
+generic retry or permission to start another Toolset.
+
 ## Purpose
 
 This route accepts a newly built, caller-owned NWN `.mod` binary. It does not
@@ -11,6 +31,11 @@ independently binds the resulting immutable bytes and serialized contents.
 
 The profile is `aurora-toolset-binary-module-bootstrap-profile/v1`; an example
 is in `proof-profiles/binary-module-bootstrap-profile.example.json`.
+
+The module filesystem stem may contain internal ASCII spaces and hyphens,
+within the existing 1–32 character bound. It must match the exact MOD basename
+case-insensitively. This does not relax internal resource resrefs or HAK names;
+leading/trailing whitespace, path separators and control characters are rejected.
 
 ## Central structural gate
 
@@ -59,6 +84,29 @@ resref/hash plus both Area identities: serialized resref and the ARE-native
 display name used by Toolset's Area tree. `geometry-observe` opens only that
 Area, performs the central native Save/readback gate, and fail-closes on an
 invalid-locations or `Inaccessable Objects` condition.
+
+### Exact pre-Build frame placement
+
+`aurora-toolset-rebuild.mjs open --ensureNonPrimary true` remains the only
+opt-in placement path for an already owned `module_ready` session. It reads
+the immutable opener's `moduleWindowHwnd` with the existing inspector's
+`--includeHiddenFrameHwnd`, then admits only that exact clean, responsive
+frame in `created` state with unchanged module bytes and no modal. Missing
+or changed HWND, dirty/wrong module, another frame or submitted Build fails.
+The four-argument frame guard still requires visibility everywhere else.
+
+Record placement intent before the existing no-activate restorer receives
+exact PID plus HWND. After it returns, require the original default visible
+guard, same frame, non-primary DISPLAY1 and unchanged module hash before
+continuing the existing Build-dialog operation. There is no new command,
+retry, launcher, transport or leaf-atom permission. A hidden frame by itself
+is not an AV diagnosis or a successful native Build.
+
+Offline regression: `node backend/scripts/test-aurora-toolset-rebuild-contract.mjs`.
+The recorded hidden-frame case, default-visible refusal, exact opt-in
+positive and identity/modal/hash/submitted-Build negatives execute pure
+contracts only. The native restore and following Build require their own
+owned-session readback; this source change does not claim them verified.
 
 ### Explicit-open startup admission
 

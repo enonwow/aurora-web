@@ -6,6 +6,13 @@ Scope: exact `LocalizedName`, `Description`, and `DescIdentified`
 `CExoLocString` provenance plus bounded inline language-0 printable-ASCII
 compare-and-swap replacement for one retained type-`0` ground Item
 
+Additive extension: the complete ordered inline printable-ASCII list editor is
+now source-closed in
+`area-existing-item-ordered-inline-localized-string-editor-audit-v1-2026-09-13.md`.
+This document remains the legacy scalar compatibility contract; its original
+multilingual preserve-only statements do not narrow that later bounded
+complete-list extension.
+
 ## Decision
 
 Aurora Web may retain the complete exact native storage of the three common

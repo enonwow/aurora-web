@@ -2102,6 +2102,62 @@ describe("projectAreaUpdateDraft", () => {
       .toBe(true);
   });
 
+  it("projects a complete ordered Placeable localized-string list CAS", () => {
+    const value = snapshot();
+    const payload = value.draft.payload as Record<string, any>;
+    payload.provenance.sourceGitSha256 = "b".repeat(64);
+    const object = sceneObject("placeables", "obj_plc_chest", "placeable") as Record<string, any>;
+    object.source.sourceIndex = 7;
+    object.source.placeableLocalizedStrings = {
+      locName: {
+        present: true,
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 0, textBytesBase64: "Q2hlc3Q=" },
+          { languageId: 2, textBytesBase64: "Q29mZnJl" },
+        ],
+      },
+      description: { present: true, strRef: 0xffff_ffff, entries: [] },
+    };
+    object.placeableProperties = {
+      localizedName: "Chest",
+      localizedNameEntries: [
+        { languageId: 10, text: "Skrzynia" },
+        { languageId: 0, text: "Chest" },
+      ],
+      description: "",
+      descriptionEntries: [],
+    };
+    payload.editableScene.objects = [object];
+
+    const result = projectAreaUpdateDraft(value, {
+      areaResRef: "crypt01",
+      draftId: "draft_01",
+      draftRevision: 7,
+      draftNormalizedSha256: DRAFT_HASH,
+    });
+
+    expect(result.objectEditing?.propertyMutations).toEqual([{
+      kind: "placeable",
+      sourceObjectId: "obj_plc_chest",
+      sourceIndex: 7,
+      localizedStrings: [{
+        field: "LocName",
+        expectedValue: "Chest",
+        value: "Chest",
+        expectedProfile: "multi_entry_inline_ascii",
+        expectedEntries: [
+          { languageId: 0, text: "Chest" },
+          { languageId: 2, text: "Coffre" },
+        ],
+        valueEntries: [
+          { languageId: 10, text: "Skrzynia" },
+          { languageId: 0, text: "Chest" },
+        ],
+      }],
+    }]);
+  });
+
   it("does not project absent target properties or unchanged bounded localized strings", () => {
     const value = snapshot();
     const payload = value.draft.payload as Record<string, any>;
@@ -5209,6 +5265,76 @@ describe("projectAreaUpdateDraft", () => {
     expect(Object.isFrozen(
       (result.objectEditing?.propertyMutations?.[0] as any).localizedStrings,
     )).toBe(true);
+  });
+
+  it("projects complete ordered ground-item localized-string list CAS entries", () => {
+    const value = snapshot();
+    const payload = value.draft.payload as Record<string, any>;
+    payload.provenance.sourceGitSha256 = "b".repeat(64);
+    const object = sceneObject("items", "obj_itm_sword", "item");
+    payload.editableScene.objects = [{
+      ...object,
+      source: {
+        ...object.source,
+        sourceIndex: 0,
+        itemLocalizedStrings: {
+          localizedName: {
+            present: true,
+            strRef: 0xffff_ffff,
+            entries: [
+              { languageId: 42, textBytesBase64: "TGVnYWN5" },
+              { languageId: 0, textBytesBase64: "U3dvcmQ=" },
+            ],
+          },
+          description: { present: true, strRef: 0xffff_ffff, entries: [] },
+          identifiedDescription: {
+            present: true,
+            strRef: 0xffff_ffff,
+            entries: [{ languageId: 0, textBytesBase64: "S25vd24=" }],
+          },
+        },
+      },
+      itemProperties: {
+        localizedName: "Sword 2",
+        localizedNameEntries: [
+          { languageId: 0, text: "Sword 2" },
+          { languageId: 2, text: "Epee" },
+          { languageId: 42, text: "Legacy 2" },
+        ],
+        description: "",
+        descriptionEntries: [],
+        identifiedDescription: "Known",
+        identifiedDescriptionEntries: [{ languageId: 0, text: "Known" }],
+      },
+    }];
+
+    const result = projectAreaUpdateDraft(value, {
+      areaResRef: "crypt01",
+      draftId: "draft_01",
+      draftRevision: 7,
+      draftNormalizedSha256: DRAFT_HASH,
+    });
+
+    expect(result.objectEditing?.propertyMutations).toEqual([{
+      kind: "item",
+      sourceObjectId: "obj_itm_sword",
+      sourceIndex: 0,
+      localizedStrings: [{
+        field: "LocalizedName",
+        expectedValue: "Sword",
+        value: "Sword 2",
+        expectedProfile: "multi_entry_inline_ascii",
+        expectedEntries: [
+          { languageId: 42, text: "Legacy" },
+          { languageId: 0, text: "Sword" },
+        ],
+        valueEntries: [
+          { languageId: 0, text: "Sword 2" },
+          { languageId: 2, text: "Epee" },
+          { languageId: 42, text: "Legacy 2" },
+        ],
+      }],
+    }]);
   });
 
   it("keeps unsupported ground-item localized-string members preserve-only", () => {
@@ -8616,6 +8742,94 @@ describe("projectAreaUpdateDraft", () => {
       ],
     }]);
     expect(Object.isFrozen(result.objectEditing?.propertyMutations?.[0]?.localizedStrings)).toBe(true);
+  });
+
+  it("projects complete ordered Creature localized-string lists with exact source CAS", () => {
+    const value = snapshot();
+    const payload = value.draft.payload as Record<string, any>;
+    payload.provenance.sourceGitSha256 = "b".repeat(64);
+    const object = sceneObject("creatures", "obj_cre_guard", "creature");
+    payload.editableScene.objects = [{
+      ...object,
+      source: {
+        ...object.source,
+        sourceIndex: 0,
+        creatureLocalizedStrings: {
+          firstName: {
+            present: true,
+            strRef: 0xffff_ffff,
+            entries: [
+              { languageId: 42, textBytesBase64: "TGVnYWN5" },
+              { languageId: 0, textBytesBase64: "R3VhcmQ=" },
+            ],
+          },
+          lastName: { present: true, strRef: 0xffff_ffff, entries: [] },
+          description: {
+            present: true,
+            strRef: 0xffff_ffff,
+            entries: [{ languageId: 0, textBytesBase64: "T2xk" }],
+          },
+        },
+      },
+      creatureProperties: {
+        firstName: "Captain",
+        firstNameEntries: [
+          { languageId: 0, text: "Captain" },
+          { languageId: 2, text: "Capitaine" },
+          { languageId: 42, text: "Legacy 2" },
+        ],
+        lastName: "Aribeth",
+        lastNameEntries: [{ languageId: 0, text: "Aribeth" }],
+        description: "",
+        descriptionEntries: [],
+      },
+    }];
+
+    const result = projectAreaUpdateDraft(value, {
+      areaResRef: "crypt01",
+      draftId: "draft_01",
+      draftRevision: 7,
+      draftNormalizedSha256: DRAFT_HASH,
+    });
+
+    expect(result.objectEditing?.propertyMutations).toEqual([{
+      kind: "creature",
+      sourceObjectId: "obj_cre_guard",
+      sourceIndex: 0,
+      localizedStrings: [
+        {
+          field: "FirstName",
+          expectedValue: "Guard",
+          value: "Captain",
+          expectedProfile: "multi_entry_inline_ascii",
+          expectedEntries: [
+            { languageId: 42, text: "Legacy" },
+            { languageId: 0, text: "Guard" },
+          ],
+          valueEntries: [
+            { languageId: 0, text: "Captain" },
+            { languageId: 2, text: "Capitaine" },
+            { languageId: 42, text: "Legacy 2" },
+          ],
+        },
+        {
+          field: "LastName",
+          expectedValue: "",
+          value: "Aribeth",
+          expectedProfile: "empty_inline_ascii",
+          expectedEntries: [],
+          valueEntries: [{ languageId: 0, text: "Aribeth" }],
+        },
+        {
+          field: "Description",
+          expectedValue: "Old",
+          value: "",
+          expectedProfile: "simple_inline_ascii",
+          expectedEntries: [{ languageId: 0, text: "Old" }],
+          valueEntries: [],
+        },
+      ],
+    }]);
   });
 
   it("keeps TLK-backed Creature names preserve-only while projecting an admitted sibling", () => {

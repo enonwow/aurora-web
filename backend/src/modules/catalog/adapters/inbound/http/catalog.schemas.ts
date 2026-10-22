@@ -162,6 +162,25 @@ const creatureClassRowsQuerySchema = z.object({
   }
 });
 
+const creatureClassSpellRowsQuerySchema = z.object({
+  tableSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  classesTableSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  classId: z.coerce.number().int().min(0).max(65_535),
+  spellLevel: z.coerce.number().int().min(0).max(13),
+  rowIndex: z.coerce.number().int().min(0).max(65_535).optional(),
+  query: z.string().trim().min(1).max(128).optional(),
+  limit: z.coerce.number().int().min(1).max(256).default(100),
+  offset: z.coerce.number().int().min(0).max(65_535).default(0),
+}).strict().superRefine((value, context) => {
+  if (value.rowIndex !== undefined && value.query !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rowIndex"],
+      message: "rowIndex and query are mutually exclusive",
+    });
+  }
+});
+
 const creatureSkillRowsQuerySchema = z.object({
   tableSha256: z.string().regex(/^[a-f0-9]{64}$/u),
   rowIndex: z.coerce.number().int().min(0).max(4_095).optional(),
@@ -388,6 +407,20 @@ export function parseCreatureClassRowsQuery(input: unknown) {
     status: 422,
     code: "VALIDATION_FAILED",
     message: "Creature Class row query validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message,
+    })),
+  });
+}
+
+export function parseCreatureClassSpellRowsQuery(input: unknown) {
+  const parsed = creatureClassSpellRowsQuerySchema.safeParse(input);
+  if (parsed.success) return parsed.data;
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Creature class spell row query validation failed.",
     details: parsed.error.issues.map((issue) => ({
       path: issue.path.join("."),
       reason: issue.message,

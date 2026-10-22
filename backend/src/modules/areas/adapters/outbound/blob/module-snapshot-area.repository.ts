@@ -52,6 +52,7 @@ import {
   type EffectiveCreatureSoundSetsTwoDaTableResult,
   type EffectiveCreatureStartingPackagesTwoDaTableResult,
   type EffectiveCreatureClassesTwoDaTableResult,
+  type EffectiveCreatureClassSpellsTwoDaTableResult,
   type EffectiveCreatureSkillsTwoDaTableResult,
   type EffectiveCreatureFeatsTwoDaTableResult,
   type EffectiveCreatureSpecialAbilitiesTwoDaTableResult,
@@ -85,8 +86,10 @@ import { bindEffectiveCreatureFeatsTwoDaToCreatureFeatList } from
   "../../../domain/area-creature-feat-list";
 import { bindEffectiveCreatureSpecialAbilitiesTwoDaToList } from
   "../../../domain/area-creature-special-ability-list";
-import { bindEffectiveCreatureClassesTwoDaToCreatureClassIdentity } from
-  "../../../domain/area-creature-class-identity";
+import {
+  bindEffectiveCreatureClassesTwoDaToCreatureClassIdentity,
+  bindEffectiveCreatureClassSpellsTwoDaToCreatureClassIdentity,
+} from "../../../domain/area-creature-class-identity";
 import { bindEffectivePhenotypeTwoDaToCreaturePhenotype } from
   "../../../domain/area-creature-phenotype";
 import { bindEffectiveCreaturePortraitsTwoDaToCreaturePortrait } from
@@ -462,6 +465,20 @@ export class ModuleSnapshotAreaRepository
     } catch (error) {
       this.logger.warn(
         `Omitting effective classes.2da provenance because catalog resolution failed: ${formatSnapshotIndexError(error)}`,
+      );
+      return null;
+    }
+  }
+
+  private async resolveEffectiveCreatureClassSpellsTwoDaTable(): Promise<
+    EffectiveCreatureClassSpellsTwoDaTableResult | null
+  > {
+    try {
+      return await this.templateCatalogRepository
+        ?.resolveEffectiveCreatureClassSpellsTwoDaTable?.() ?? null;
+    } catch (error) {
+      this.logger.warn(
+        `Omitting effective class-spells.2da provenance because catalog resolution failed: ${formatSnapshotIndexError(error)}`,
       );
       return null;
     }
@@ -918,6 +935,7 @@ export class ModuleSnapshotAreaRepository
       effectiveCreatureSoundSetsTwoDaTable,
       effectiveCreatureStartingPackagesTwoDaTable,
       effectiveCreatureClassesTwoDaTable,
+      effectiveCreatureClassSpellsTwoDaTable,
       effectiveCreatureSkillsTwoDaTable,
       effectiveCreatureFeatsTwoDaTable,
       effectiveCreatureSpecialAbilitiesTwoDaTable,
@@ -945,6 +963,7 @@ export class ModuleSnapshotAreaRepository
       this.resolveEffectiveCreatureSoundSetsTwoDaTable(),
       this.resolveEffectiveCreatureStartingPackagesTwoDaTable(),
       this.resolveEffectiveCreatureClassesTwoDaTable(),
+      this.resolveEffectiveCreatureClassSpellsTwoDaTable(),
       this.resolveEffectiveCreatureSkillsTwoDaTable(),
       this.resolveEffectiveCreatureFeatsTwoDaTable(),
       this.resolveEffectiveCreatureSpecialAbilitiesTwoDaTable(),
@@ -983,6 +1002,7 @@ export class ModuleSnapshotAreaRepository
       effectiveCreatureSoundSetsTwoDaTable,
       effectiveCreatureStartingPackagesTwoDaTable,
       effectiveCreatureClassesTwoDaTable,
+      effectiveCreatureClassSpellsTwoDaTable,
       effectiveCreatureSkillsTwoDaTable,
       effectiveCreatureFeatsTwoDaTable,
       effectiveCreatureSpecialAbilitiesTwoDaTable,
@@ -1764,6 +1784,7 @@ function mapCandidateToAreaRecord(
   effectiveCreatureStartingPackagesTwoDaTable?:
     EffectiveCreatureStartingPackagesTwoDaTableResult | null,
   effectiveCreatureClassesTwoDaTable?: EffectiveCreatureClassesTwoDaTableResult | null,
+  effectiveCreatureClassSpellsTwoDaTable?: EffectiveCreatureClassSpellsTwoDaTableResult | null,
   effectiveCreatureSkillsTwoDaTable?: EffectiveCreatureSkillsTwoDaTableResult | null,
   effectiveCreatureFeatsTwoDaTable?: EffectiveCreatureFeatsTwoDaTableResult | null,
   effectiveCreatureSpecialAbilitiesTwoDaTable?:
@@ -1808,6 +1829,7 @@ function mapCandidateToAreaRecord(
     effectiveCreatureSoundSetsTwoDaTable,
     effectiveCreatureStartingPackagesTwoDaTable,
     effectiveCreatureClassesTwoDaTable,
+    effectiveCreatureClassSpellsTwoDaTable,
     effectiveCreatureSkillsTwoDaTable,
     effectiveCreatureFeatsTwoDaTable,
     effectiveCreatureSpecialAbilitiesTwoDaTable,
@@ -2174,6 +2196,7 @@ function buildAreaObjects(
   effectiveCreatureStartingPackagesTwoDaTable?:
     EffectiveCreatureStartingPackagesTwoDaTableResult | null,
   effectiveCreatureClassesTwoDaTable?: EffectiveCreatureClassesTwoDaTableResult | null,
+  effectiveCreatureClassSpellsTwoDaTable?: EffectiveCreatureClassSpellsTwoDaTableResult | null,
   effectiveCreatureSkillsTwoDaTable?: EffectiveCreatureSkillsTwoDaTableResult | null,
   effectiveCreatureFeatsTwoDaTable?: EffectiveCreatureFeatsTwoDaTableResult | null,
   effectiveCreatureSpecialAbilitiesTwoDaTable?:
@@ -2222,6 +2245,7 @@ function buildAreaObjects(
     effectiveCreatureSoundSetsTwoDaTable,
     effectiveCreatureStartingPackagesTwoDaTable,
     effectiveCreatureClassesTwoDaTable,
+    effectiveCreatureClassSpellsTwoDaTable,
     effectiveCreatureSkillsTwoDaTable,
     effectiveCreatureFeatsTwoDaTable,
     effectiveCreatureSpecialAbilitiesTwoDaTable,
@@ -3276,6 +3300,7 @@ function appendPlacements(
   effectiveCreatureStartingPackagesTwoDaTable?:
     EffectiveCreatureStartingPackagesTwoDaTableResult | null,
   effectiveCreatureClassesTwoDaTable?: EffectiveCreatureClassesTwoDaTableResult | null,
+  effectiveCreatureClassSpellsTwoDaTable?: EffectiveCreatureClassSpellsTwoDaTableResult | null,
   effectiveCreatureSkillsTwoDaTable?: EffectiveCreatureSkillsTwoDaTableResult | null,
   effectiveCreatureFeatsTwoDaTable?: EffectiveCreatureFeatsTwoDaTableResult | null,
   effectiveCreatureSpecialAbilitiesTwoDaTable?:
@@ -3391,9 +3416,12 @@ function appendPlacements(
         )
       : undefined;
     const creatureClassIdentityState = placement.creatureClassIdentityState
-      ? bindEffectiveCreatureClassesTwoDaToCreatureClassIdentity(
-          placement.creatureClassIdentityState,
-          effectiveCreatureClassesTwoDaTable,
+      ? bindEffectiveCreatureClassSpellsTwoDaToCreatureClassIdentity(
+          bindEffectiveCreatureClassesTwoDaToCreatureClassIdentity(
+            placement.creatureClassIdentityState,
+            effectiveCreatureClassesTwoDaTable,
+          ),
+          effectiveCreatureClassSpellsTwoDaTable,
         )
       : undefined;
     const creaturePhenotype = placement.creaturePhenotype
@@ -3849,6 +3877,21 @@ function appendPlacements(
         : {}),
       ...(placement.triggerTransitionStorage
         ? { triggerTransitionStorage: { ...placement.triggerTransitionStorage } }
+        : {}),
+      ...(placement.triggerCoreProperties
+        ? { triggerCoreProperties: { ...placement.triggerCoreProperties } }
+        : {}),
+      ...(placement.triggerTrapProperties
+        ? { triggerTrapProperties: { ...placement.triggerTrapProperties } }
+        : {}),
+      ...(placement.triggerVariables
+        ? {
+            triggerVariables: {
+              expectedEntries: placement.triggerVariables.expectedEntries.map((entry) => ({
+                ...entry,
+              })),
+            },
+          }
         : {}),
       ...(placement.triggerMetadata
         ? { triggerMetadata: { ...placement.triggerMetadata } }

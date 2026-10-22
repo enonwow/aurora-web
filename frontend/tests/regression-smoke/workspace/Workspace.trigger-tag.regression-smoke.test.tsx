@@ -28,6 +28,33 @@ const SOURCE_TRIGGER_TRANSITION_STORAGE = {
   linkedToFlags: 2,
   loadScreenId: 7,
 };
+const SOURCE_TRIGGER_CORE_PROPERTIES = {
+  autoRemoveKey: 0 as const,
+  factionId: 1,
+  cursorId: 2,
+  highlightHeight: Math.fround(1.5),
+  keyName: "source_key",
+  portraitId: 3,
+  triggerType: 0,
+};
+const SOURCE_TRIGGER_TRAP_PROPERTIES = {
+  trapDetectable: 1,
+  trapDetectDc: 11,
+  trapDisarmable: 0,
+  disarmDc: 22,
+  trapFlag: 1,
+  trapOneShot: 0,
+  trapType: 5,
+};
+const TRIGGER_TRAP_INPUT_LABELS = {
+  trapDetectable: "Trigger Raw TrapDetectable",
+  trapDetectDc: "Trigger Raw TrapDetectDC",
+  trapDisarmable: "Trigger Raw TrapDisarmable",
+  disarmDc: "Trigger Raw DisarmDC",
+  trapFlag: "Trigger Raw TrapFlag",
+  trapOneShot: "Trigger Raw TrapOneShot",
+  trapType: "Trigger Raw TrapType",
+} as const;
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -58,6 +85,8 @@ function seedExactTriggerTagDraft() {
     triggerEditorComment: SOURCE_EDITOR_COMMENT,
     triggerScriptResRefs: { ...SOURCE_TRIGGER_SCRIPTS },
     triggerTransitionStorage: { ...SOURCE_TRIGGER_TRANSITION_STORAGE },
+    triggerCoreProperties: { ...SOURCE_TRIGGER_CORE_PROPERTIES },
+    triggerTrapProperties: { ...SOURCE_TRIGGER_TRAP_PROPERTIES },
     x: 1,
     y: 2,
     z: 0,
@@ -92,6 +121,8 @@ function seedExactTriggerTagDraft() {
       triggerEditorComment: SOURCE_EDITOR_COMMENT,
       triggerScriptResRefsStorage: { ...SOURCE_TRIGGER_SCRIPTS },
       triggerTransitionStorage: { ...SOURCE_TRIGGER_TRANSITION_STORAGE },
+      triggerCoreProperties: { ...SOURCE_TRIGGER_CORE_PROPERTIES },
+      triggerTrapProperties: { ...SOURCE_TRIGGER_TRAP_PROPERTIES },
       polygonGeometry: geometry,
     },
   });
@@ -119,7 +150,7 @@ describe("Regression smoke: retained Trigger identity", () => {
     seedExactTriggerTagDraft();
   });
 
-  it("preserves exact Trigger identity and event-script provenance through Apply, Cancel, reopen, OK, and Save", async () => {
+  it("preserves exact Trigger identity, core and trap properties, and event-script provenance through Apply, Cancel, reopen, OK, and Save", async () => {
     renderAtPath("/login");
     await signInAsBuilder();
 
@@ -133,6 +164,19 @@ describe("Regression smoke: retained Trigger identity", () => {
     let linkedTo = within(dialog).getByLabelText("Trigger Raw LinkedTo");
     let linkedToFlags = within(dialog).getByLabelText("Trigger Raw LinkedToFlags");
     let loadScreenId = within(dialog).getByLabelText("Trigger Raw LoadScreenID");
+    let autoRemoveKey = within(dialog).getByLabelText("Trigger Raw AutoRemoveKey");
+    let factionId = within(dialog).getByLabelText("Trigger Raw Faction");
+    let cursorId = within(dialog).getByLabelText("Trigger Raw Cursor");
+    let highlightHeight = within(dialog).getByLabelText("Trigger Raw HighlightHeight");
+    let keyName = within(dialog).getByLabelText("Trigger Raw KeyName");
+    let portraitId = within(dialog).getByLabelText("Trigger Raw PortraitId");
+    let triggerType = within(dialog).getByLabelText("Trigger Raw Type");
+    let trapInputs = Object.fromEntries(
+      Object.entries(TRIGGER_TRAP_INPUT_LABELS).map(([key, label]) => [
+        key,
+        within(dialog).getByLabelText(label),
+      ]),
+    );
     expect(tag).toBeEnabled();
     expect(tag).toHaveAttribute("maxLength", "32");
     expect(templateResRef).toBeEnabled();
@@ -147,7 +191,12 @@ describe("Regression smoke: retained Trigger identity", () => {
     expect(linkedTo).toHaveAttribute("maxLength", "256");
     expect(linkedToFlags).toBeEnabled();
     expect(loadScreenId).toBeEnabled();
-    expect(within(dialog).getAllByText("ACTIVE_NOW")).toHaveLength(14);
+    expect(autoRemoveKey).toBeEnabled();
+    expect(keyName).toHaveAttribute("maxLength", "256");
+    expect(trapInputs.trapDetectable).toBeEnabled();
+    expect(trapInputs.trapDetectable).toHaveAttribute("min", "0");
+    expect(trapInputs.trapDetectable).toHaveAttribute("max", "255");
+    expect(within(dialog).getAllByText("ACTIVE_NOW")).toHaveLength(16);
     const appliedValue = "  AREA_EXIT  ";
     const appliedTemplateResRef = "custom_trigger";
     const appliedLocalizedName = " Inner Gate Trigger ";
@@ -157,6 +206,21 @@ describe("Regression smoke: retained Trigger identity", () => {
     const appliedLinkedTo = "crypt_exit";
     const appliedLinkedToFlags = 4;
     const appliedLoadScreenId = 321;
+    const appliedFactionId = 2;
+    const appliedCursorId = 4;
+    const appliedHighlightHeight = 2.5;
+    const appliedKeyName = " target_key ";
+    const appliedPortraitId = 5;
+    const appliedTriggerType = -1;
+    const appliedTriggerTrapProperties = {
+      trapDetectable: 2,
+      trapDetectDc: 33,
+      trapDisarmable: 3,
+      disarmDc: 44,
+      trapFlag: 4,
+      trapOneShot: 5,
+      trapType: 6,
+    };
     fireEvent.change(tag, { target: { value: appliedValue } });
     fireEvent.change(templateResRef, { target: { value: appliedTemplateResRef } });
     fireEvent.change(localizedName, { target: { value: appliedLocalizedName } });
@@ -166,6 +230,16 @@ describe("Regression smoke: retained Trigger identity", () => {
     fireEvent.change(linkedTo, { target: { value: appliedLinkedTo } });
     fireEvent.change(linkedToFlags, { target: { value: String(appliedLinkedToFlags) } });
     fireEvent.change(loadScreenId, { target: { value: String(appliedLoadScreenId) } });
+    fireEvent.click(autoRemoveKey);
+    fireEvent.change(factionId, { target: { value: String(appliedFactionId) } });
+    fireEvent.change(cursorId, { target: { value: String(appliedCursorId) } });
+    fireEvent.change(highlightHeight, { target: { value: String(appliedHighlightHeight) } });
+    fireEvent.change(keyName, { target: { value: appliedKeyName } });
+    fireEvent.change(portraitId, { target: { value: String(appliedPortraitId) } });
+    fireEvent.change(triggerType, { target: { value: String(appliedTriggerType) } });
+    Object.entries(appliedTriggerTrapProperties).forEach(([key, value]) => {
+      fireEvent.change(trapInputs[key], { target: { value: String(value) } });
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
     await waitFor(() => expect(tag).toHaveValue(appliedValue));
     expect(templateResRef).toHaveValue(appliedTemplateResRef);
@@ -176,6 +250,16 @@ describe("Regression smoke: retained Trigger identity", () => {
     expect(linkedTo).toHaveValue(appliedLinkedTo);
     expect(linkedToFlags).toHaveValue(appliedLinkedToFlags);
     expect(loadScreenId).toHaveValue(appliedLoadScreenId);
+    expect(autoRemoveKey).toBeChecked();
+    expect(factionId).toHaveValue(appliedFactionId);
+    expect(cursorId).toHaveValue(appliedCursorId);
+    expect(highlightHeight).toHaveValue(appliedHighlightHeight);
+    expect(keyName).toHaveValue(appliedKeyName);
+    expect(portraitId).toHaveValue(appliedPortraitId);
+    expect(triggerType).toHaveValue(appliedTriggerType);
+    Object.entries(appliedTriggerTrapProperties).forEach(([key, value]) => {
+      expect(trapInputs[key]).toHaveValue(value);
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
 
     dialog = await openTriggerProperties();
@@ -188,6 +272,19 @@ describe("Regression smoke: retained Trigger identity", () => {
     linkedTo = within(dialog).getByLabelText("Trigger Raw LinkedTo");
     linkedToFlags = within(dialog).getByLabelText("Trigger Raw LinkedToFlags");
     loadScreenId = within(dialog).getByLabelText("Trigger Raw LoadScreenID");
+    autoRemoveKey = within(dialog).getByLabelText("Trigger Raw AutoRemoveKey");
+    factionId = within(dialog).getByLabelText("Trigger Raw Faction");
+    cursorId = within(dialog).getByLabelText("Trigger Raw Cursor");
+    highlightHeight = within(dialog).getByLabelText("Trigger Raw HighlightHeight");
+    keyName = within(dialog).getByLabelText("Trigger Raw KeyName");
+    portraitId = within(dialog).getByLabelText("Trigger Raw PortraitId");
+    triggerType = within(dialog).getByLabelText("Trigger Raw Type");
+    trapInputs = Object.fromEntries(
+      Object.entries(TRIGGER_TRAP_INPUT_LABELS).map(([key, label]) => [
+        key,
+        within(dialog).getByLabelText(label),
+      ]),
+    );
     expect(tag).toHaveValue(appliedValue);
     expect(templateResRef).toHaveValue(appliedTemplateResRef);
     expect(localizedName).toHaveValue(appliedLocalizedName);
@@ -197,6 +294,16 @@ describe("Regression smoke: retained Trigger identity", () => {
     expect(linkedTo).toHaveValue(appliedLinkedTo);
     expect(linkedToFlags).toHaveValue(appliedLinkedToFlags);
     expect(loadScreenId).toHaveValue(appliedLoadScreenId);
+    expect(autoRemoveKey).toBeChecked();
+    expect(factionId).toHaveValue(appliedFactionId);
+    expect(cursorId).toHaveValue(appliedCursorId);
+    expect(highlightHeight).toHaveValue(appliedHighlightHeight);
+    expect(keyName).toHaveValue(appliedKeyName);
+    expect(portraitId).toHaveValue(appliedPortraitId);
+    expect(triggerType).toHaveValue(appliedTriggerType);
+    Object.entries(appliedTriggerTrapProperties).forEach(([key, value]) => {
+      expect(trapInputs[key]).toHaveValue(value);
+    });
     fireEvent.change(tag, { target: { value: "DISCARDED" } });
     fireEvent.change(templateResRef, { target: { value: "discarded" } });
     fireEvent.change(localizedName, { target: { value: "Discarded" } });
@@ -206,6 +313,16 @@ describe("Regression smoke: retained Trigger identity", () => {
     fireEvent.change(linkedTo, { target: { value: "discarded" } });
     fireEvent.change(linkedToFlags, { target: { value: "9" } });
     fireEvent.change(loadScreenId, { target: { value: "999" } });
+    fireEvent.click(autoRemoveKey);
+    fireEvent.change(factionId, { target: { value: "99" } });
+    fireEvent.change(cursorId, { target: { value: "99" } });
+    fireEvent.change(highlightHeight, { target: { value: "9.5" } });
+    fireEvent.change(keyName, { target: { value: "discarded_key" } });
+    fireEvent.change(portraitId, { target: { value: "99" } });
+    fireEvent.change(triggerType, { target: { value: "99" } });
+    Object.values(trapInputs).forEach((input) => {
+      fireEvent.change(input, { target: { value: "99" } });
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
 
     dialog = await openTriggerProperties();
@@ -226,6 +343,19 @@ describe("Regression smoke: retained Trigger identity", () => {
       .toHaveValue(appliedLinkedToFlags);
     expect(within(dialog).getByLabelText("Trigger Raw LoadScreenID"))
       .toHaveValue(appliedLoadScreenId);
+    expect(within(dialog).getByLabelText("Trigger Raw AutoRemoveKey")).toBeChecked();
+    expect(within(dialog).getByLabelText("Trigger Raw Faction")).toHaveValue(appliedFactionId);
+    expect(within(dialog).getByLabelText("Trigger Raw Cursor")).toHaveValue(appliedCursorId);
+    expect(within(dialog).getByLabelText("Trigger Raw HighlightHeight"))
+      .toHaveValue(appliedHighlightHeight);
+    expect(within(dialog).getByLabelText("Trigger Raw KeyName")).toHaveValue(appliedKeyName);
+    expect(within(dialog).getByLabelText("Trigger Raw PortraitId"))
+      .toHaveValue(appliedPortraitId);
+    expect(within(dialog).getByLabelText("Trigger Raw Type")).toHaveValue(appliedTriggerType);
+    Object.entries(appliedTriggerTrapProperties).forEach(([key, value]) => {
+      expect(within(dialog).getByLabelText(TRIGGER_TRAP_INPUT_LABELS[key]))
+        .toHaveValue(value);
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
 
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
@@ -249,6 +379,16 @@ describe("Regression smoke: retained Trigger identity", () => {
         linkedToFlags: appliedLinkedToFlags,
         loadScreenId: appliedLoadScreenId,
       });
+      expect(trigger?.triggerCoreProperties).toEqual({
+        autoRemoveKey: 1,
+        factionId: appliedFactionId,
+        cursorId: appliedCursorId,
+        highlightHeight: appliedHighlightHeight,
+        keyName: appliedKeyName,
+        portraitId: appliedPortraitId,
+        triggerType: appliedTriggerType,
+      });
+      expect(trigger?.triggerTrapProperties).toEqual(appliedTriggerTrapProperties);
       expect(trigger?.resRef).toBe(SOURCE_TEMPLATE_RESREF);
       expect(trigger?.source?.triggerTag).toEqual({
         present: true,
@@ -269,6 +409,10 @@ describe("Regression smoke: retained Trigger identity", () => {
         .toEqual(SOURCE_TRIGGER_SCRIPTS);
       expect(trigger?.source?.triggerTransitionStorage)
         .toEqual(SOURCE_TRIGGER_TRANSITION_STORAGE);
+      expect(trigger?.source?.triggerCoreProperties)
+        .toEqual(SOURCE_TRIGGER_CORE_PROPERTIES);
+      expect(trigger?.source?.triggerTrapProperties)
+        .toEqual(SOURCE_TRIGGER_TRAP_PROPERTIES);
     });
   });
 });

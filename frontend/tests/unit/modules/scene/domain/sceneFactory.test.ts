@@ -452,6 +452,57 @@ describe("sceneFactory placeable preserve-only normalization", () => {
     );
   });
 
+  it("preserves a valid Creature class spell-list clear profile across normalization", () => {
+    const creature = createNewSceneObject("creatures", 2.2, 1.1, 188);
+    const sourceReorder = {
+      classSlotIndex: 0,
+      listKind: "known" as const,
+      spellLevel: 1,
+      entryOrder: [1, 0],
+    };
+    const normalized = normalizeSceneObjectMetadata({
+      ...creature,
+      creatureProperties: {
+        ...creature.creatureProperties!,
+        classSpellClearSlotIndices: [0, 2],
+        classSpellClearConfirmed: true,
+        classSpellReorders: [sourceReorder],
+        classSpellReorderConfirmed: true,
+      },
+    });
+
+    expect(normalized.creatureProperties?.classSpellClearSlotIndices).toEqual([0, 2]);
+    expect(normalized.creatureProperties?.classSpellClearConfirmed).toBe(true);
+    expect(normalized.creatureProperties?.classSpellReorders).toEqual([{
+      classSlotIndex: 0,
+      listKind: "known",
+      spellLevel: 1,
+      entryOrder: [1, 0],
+    }]);
+    expect(normalized.creatureProperties?.classSpellReorderConfirmed).toBe(true);
+    expect(normalizeSceneObjectMetadata(normalized)).toBe(normalized);
+  });
+
+  it("drops malformed Creature class spell-entry reorder metadata", () => {
+    const creature = createNewSceneObject("creatures", 2.2, 1.1, 188);
+    const normalized = normalizeSceneObjectMetadata({
+      ...creature,
+      creatureProperties: {
+        ...creature.creatureProperties!,
+        classSpellReorders: [{
+          classSlotIndex: 0,
+          listKind: "known",
+          spellLevel: 1,
+          entryOrder: [0, 0],
+        }],
+        classSpellReorderConfirmed: true,
+      },
+    });
+
+    expect(normalized.creatureProperties?.classSpellReorders).toBeUndefined();
+    expect(normalized.creatureProperties?.classSpellReorderConfirmed).toBe(true);
+  });
+
   it("preserves only a present unsigned Byte Creature Gender target across normalization", () => {
     const creature = createNewSceneObject("creatures", 2.2, 1.1, 188);
 

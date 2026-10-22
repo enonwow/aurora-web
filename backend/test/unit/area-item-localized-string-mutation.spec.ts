@@ -3,7 +3,10 @@ import {
   MAX_AREA_ITEM_DESCRIPTION_ASCII_BYTES,
   MAX_AREA_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES,
   MAX_AREA_ITEM_LOCALIZED_NAME_ASCII_BYTES,
+  areaItemLocalizedStringProfileForEntries,
   buildAreaItemInlineAsciiStorage,
+  cloneAreaItemLocalizedStringEntries,
+  readEditableAreaItemLocalizedStringStorage,
   readAreaItemInlineAsciiStorage,
   readExistingAreaItemLocalizedStringMutations,
 } from "../../src/modules/areas/domain/area-item-localized-string-mutation";
@@ -67,6 +70,82 @@ describe("bounded existing ground-Item localized-string mutation", () => {
     });
     expect(buildAreaItemInlineAsciiStorage("Żółć", 256)).toBeUndefined();
     expect(buildAreaItemInlineAsciiStorage("A".repeat(257), 256)).toBeUndefined();
+  });
+
+  it("admits complete ordered inline-ASCII entry lists and retains unknown source identifiers", () => {
+    const storage = readEditableAreaItemLocalizedStringStorage({
+      present: true,
+      strRef: 0xffff_ffff,
+      entries: [
+        { languageId: 42, textBytesBase64: "TGVnYWN5" },
+        { languageId: 0, textBytesBase64: "U3dvcmQ=" },
+        { languageId: 10, textBytesBase64: "TWllY3o=" },
+      ],
+    }, 256);
+
+    expect(storage).toEqual({
+      value: "Sword",
+      profile: "multi_entry_inline_ascii",
+      entries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Sword" },
+        { languageId: 10, text: "Miecz" },
+      ],
+    });
+    expect(areaItemLocalizedStringProfileForEntries(storage!.entries))
+      .toBe("multi_entry_inline_ascii");
+    expect(cloneAreaItemLocalizedStringEntries(storage!.entries)).not.toBe(storage!.entries);
+  });
+
+  it("reads complete ordered entry-list CAS and admits only retained or catalog identifiers", () => {
+    expect(readExistingAreaItemLocalizedStringMutations([{
+      field: "LocalizedName",
+      expectedValue: "Sword",
+      value: "Sword 2",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Sword" },
+      ],
+      valueEntries: [
+        { languageId: 0, text: "Sword 2" },
+        { languageId: 2, text: "Epee" },
+        { languageId: 42, text: "Legacy 2" },
+      ],
+    }])).toEqual([{
+      field: "LocalizedName",
+      expectedValue: "Sword",
+      value: "Sword 2",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Sword" },
+      ],
+      valueEntries: [
+        { languageId: 0, text: "Sword 2" },
+        { languageId: 2, text: "Epee" },
+        { languageId: 42, text: "Legacy 2" },
+      ],
+    }]);
+
+    for (const valueEntries of [
+      [{ languageId: 0, text: "Sword" }, { languageId: 41, text: "Unknown" }],
+      [{ languageId: 2, text: "Epee" }],
+      [{ languageId: 0, text: "Sword" }, { languageId: 2, text: "" }],
+      [{ languageId: 0, text: "Sword" }, { languageId: 0, text: "Duplicate" }],
+    ]) {
+      expect(readExistingAreaItemLocalizedStringMutations([{
+        field: "LocalizedName",
+        expectedValue: "Sword",
+        value: valueEntries.find((entry) => entry.languageId === 0)?.text ?? "",
+        expectedProfile: "multi_entry_inline_ascii",
+        expectedEntries: [
+          { languageId: 42, text: "Legacy" },
+          { languageId: 0, text: "Sword" },
+        ],
+        valueEntries,
+      }])).toBeNull();
+    }
   });
 
   it("reads and freezes changed pairs only in native writer order", () => {

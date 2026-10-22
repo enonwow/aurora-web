@@ -1,5 +1,6 @@
 import { useEffect, useState, type PointerEventHandler, type Ref } from "react";
 import type {
+  SceneObjectEditableLocalizedStringEntry,
   SceneObjectItemArmorParts,
   SceneObjectItemMaterialColors,
   SceneObjectItemPropertyEntry,
@@ -39,7 +40,11 @@ import { canEditExistingItemLocalizedString } from
 import {
   MAX_ITEM_DESCRIPTION_ASCII_BYTES,
   MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES,
+  MAX_ITEM_LOCALIZED_STRING_ENTRIES,
+  MAX_ITEM_LOCALIZED_STRING_ENTRY_BYTES,
+  MAX_ITEM_LOCALIZED_STRING_TOTAL_TEXT_BYTES,
   MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES,
+  isItemLocalizedStringInlineAsciiText,
 } from "../../../scene/domain/itemLocalizedStrings";
 import { ITEM_EDITOR_COMMENT_MAX_CODE_UNITS } from "../../../scene/domain/itemEditorComment";
 import { canEditItemVariables } from "../../application/itemVariableProvenance";
@@ -63,12 +68,14 @@ import {
   canEditExistingItemBaseAppearance,
   isExistingItemBaseAppearanceTargetComplete,
 } from "../../application/itemBaseAppearanceProvenance";
+import { LocalizedStringEntryEditor } from "./LocalizedStringEntryEditor";
 
 type ItemPropertiesEditableField =
   | "name"
   | "tag"
   | "resRef"
   | "localizedName"
+  | "localizedNameEntries"
   | "localizedNameStrRef"
   | "paletteId"
   | "baseItem"
@@ -91,8 +98,10 @@ type ItemPropertiesEditableField =
   | "plot"
   | "cursed"
   | "description"
+  | "descriptionEntries"
   | "descriptionStrRef"
   | "identifiedDescription"
+  | "identifiedDescriptionEntries"
   | "identifiedDescriptionStrRef"
   | "comments";
 
@@ -104,7 +113,12 @@ interface ItemPropertiesDialogProps {
   setItemPropertiesActiveTab: (nextTab: ItemPropertiesTab) => void;
   updateItemPropertiesDraftField: (
     field: ItemPropertiesEditableField,
-    value: string | number | boolean | undefined
+    value:
+      | string
+      | number
+      | boolean
+      | undefined
+      | readonly SceneObjectEditableLocalizedStringEntry[]
   ) => void;
   updateItemArmorContextDraftField: (
     field: keyof ItemPropertiesDraft["armorPreviewContext"],
@@ -513,6 +527,22 @@ export function ItemPropertiesDialog({
                       }
                     />
                   </label>
+                  {canEditRetainedLocalizedName ? (
+                    <LocalizedStringEntryEditor
+                      objectLabel="Item"
+                      fieldLabel="Name"
+                      entries={draft.localizedNameEntries}
+                      defaultTextMaxLength={MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES}
+                      entryTextMaxLength={MAX_ITEM_LOCALIZED_STRING_ENTRY_BYTES}
+                      maxEntries={MAX_ITEM_LOCALIZED_STRING_ENTRIES}
+                      maxTotalTextLength={MAX_ITEM_LOCALIZED_STRING_TOTAL_TEXT_BYTES}
+                      isInlineText={isItemLocalizedStringInlineAsciiText}
+                      onChange={(entries) => updateItemPropertiesDraftField(
+                        "localizedNameEntries",
+                        entries,
+                      )}
+                    />
+                  ) : null}
                   <label className="canvas-placeable-properties-field-row">
                     <span>
                       Name StrRef{" "}
@@ -1404,6 +1434,22 @@ export function ItemPropertiesDialog({
                     }
                     rows={5}
                   />
+                  {canEditRetainedDescription ? (
+                    <LocalizedStringEntryEditor
+                      objectLabel="Item"
+                      fieldLabel="Description"
+                      entries={draft.descriptionEntries}
+                      defaultTextMaxLength={MAX_ITEM_DESCRIPTION_ASCII_BYTES}
+                      entryTextMaxLength={MAX_ITEM_LOCALIZED_STRING_ENTRY_BYTES}
+                      maxEntries={MAX_ITEM_LOCALIZED_STRING_ENTRIES}
+                      maxTotalTextLength={MAX_ITEM_LOCALIZED_STRING_TOTAL_TEXT_BYTES}
+                      isInlineText={isItemLocalizedStringInlineAsciiText}
+                      onChange={(entries) => updateItemPropertiesDraftField(
+                        "descriptionEntries",
+                        entries,
+                      )}
+                    />
+                  ) : null}
                   <fieldset className="canvas-placeable-properties-group">
                     <legend>Localized String References</legend>
                     <div className="canvas-item-properties-grid">
@@ -1453,6 +1499,22 @@ export function ItemPropertiesDialog({
                     }
                     rows={5}
                   />
+                  {canEditRetainedIdentifiedDescription ? (
+                    <LocalizedStringEntryEditor
+                      objectLabel="Item"
+                      fieldLabel="Identified Description"
+                      entries={draft.identifiedDescriptionEntries}
+                      defaultTextMaxLength={MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES}
+                      entryTextMaxLength={MAX_ITEM_LOCALIZED_STRING_ENTRY_BYTES}
+                      maxEntries={MAX_ITEM_LOCALIZED_STRING_ENTRIES}
+                      maxTotalTextLength={MAX_ITEM_LOCALIZED_STRING_TOTAL_TEXT_BYTES}
+                      isInlineText={isItemLocalizedStringInlineAsciiText}
+                      onChange={(entries) => updateItemPropertiesDraftField(
+                        "identifiedDescriptionEntries",
+                        entries,
+                      )}
+                    />
+                  ) : null}
                   <SharedLongTextPropertySection
                     sectionClassName="canvas-placeable-properties-group"
                     legend="Comments"

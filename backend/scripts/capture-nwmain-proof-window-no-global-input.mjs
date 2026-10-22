@@ -2,10 +2,11 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validatePngBytes } from "./lib/aurora-model-proof-120s-contract.mjs";
+import { capturePerWindowPng, perWindowPlan, rejectCapturePathAlias } from "./lib/nwmain-per-window-capture.mjs";
 
 const MAX_CAPTURE_COUNT = 1;
 const MAX_Z_ORDER_MUTATIONS = 2;
@@ -16,9 +17,22 @@ function main() {
   const [command, ...rawArgs] = process.argv.slice(2);
   const options = parseArgs(rawArgs);
   const out = requiredPath(options.out, "--out");
+  const captureMethod = options.captureMethod ?? "physical";
+  if (!["physical", "printwindow"].includes(captureMethod)) throw new Error("capture_method_invalid");
+  const ambientWindowPolicy = options.ambientWindowPolicy ?? "strict";
+  if (!["strict", "observe"].includes(ambientWindowPolicy)) throw new Error("ambient_window_policy_invalid");
+  const restoreWithoutActivation = options.restoreWithoutActivation === "true";
+  if (options.restoreWithoutActivation !== undefined && !["true", "false"].includes(options.restoreWithoutActivation)) throw new Error("restore_without_activation_invalid");
+  const allowPrimaryMonitor = options.allowPrimaryMonitor === "true";
+  if (options.allowPrimaryMonitor !== undefined && !["true", "false"].includes(options.allowPrimaryMonitor)) throw new Error("primary_monitor_policy_invalid");
+  if (captureMethod === "physical" && (options.windowHwnd || options.monitorDevice || options.restoreWithoutActivation || options.ambientWindowPolicy !== undefined || options.allowPrimaryMonitor !== undefined)) throw new Error("per_window_options_require_printwindow");
 
   if (command === "dry-run") {
-    rejectUnknownOptions(options, new Set(["out"]));
+    rejectUnknownOptions(options, new Set(["out", "captureMethod", "restoreWithoutActivation", "ambientWindowPolicy", "allowPrimaryMonitor"]));
+    if (captureMethod === "printwindow") {
+      print({ ok: true, command, out, maxCaptureCount: 1, ...perWindowPlan({ restoreWithoutActivation, ambientWindowPolicy, allowPrimaryMonitor }) });
+      return;
+    }
     print({
       ok: true,
       command,
@@ -42,14 +56,17 @@ function main() {
   if (command !== "capture") {
     throw new Error("Use: dry-run --out <png>, or capture --pid <id> --startedAtUtc <Z> --out <png> [--resultOut <json>].");
   }
-  rejectUnknownOptions(options, new Set(["pid", "startedAtUtc", "out", "resultOut"]));
+  rejectUnknownOptions(options, new Set(["pid", "startedAtUtc", "out", "resultOut", "captureMethod", "windowHwnd", "monitorDevice", "restoreWithoutActivation", "ambientWindowPolicy", "allowPrimaryMonitor"]));
   const pid = positiveInteger(options.pid, "--pid");
   const startedAtUtc = absoluteUtcInstant(options.startedAtUtc, "--startedAtUtc");
   const resultOut = options.resultOut ? requiredPath(options.resultOut, "--resultOut") : null;
-  const result = capture({ pid, startedAtUtc, out });
+  rejectCapturePathAlias(out, resultOut);
+  if (captureMethod === "printwindow" && resultOut && existsSync(resultOut)) throw new Error("capture_result_already_exists");
+  const result = captureMethod === "printwindow" ? capturePerWindowPng({ pid, startedAtUtc, out,
+    windowHwnd: positiveInteger(options.windowHwnd, "--windowHwnd"), monitorDevice: required(options.monitorDevice, "--monitorDevice"), restoreWithoutActivation, ambientWindowPolicy, allowPrimaryMonitor }) : capture({ pid, startedAtUtc, out });
   if (resultOut) {
     mkdirSync(dirname(resultOut), { recursive: true });
-    writeFileSync(resultOut, `${JSON.stringify(result, null, 2)}\n`);
+    writeFileSync(resultOut, `${JSON.stringify(result, null, 2)}\n`, captureMethod === "printwindow" ? {flag: "wx"} : undefined);
   }
   print(result);
 }
@@ -242,6 +259,7 @@ $finalIdentity=Assert-ExactIdentity $h
     validatePngBytes(bytes);
     return {
       ...packet,
+      captureMethod: "physical",
       pngBytes: bytes.length,
       pngSha256: createHash("sha256").update(bytes).digest("hex"),
       capturedAtUtc: new Date().toISOString(),

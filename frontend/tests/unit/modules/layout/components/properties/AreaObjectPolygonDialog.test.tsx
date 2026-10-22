@@ -261,6 +261,189 @@ describe("AreaObjectPolygonDialog", () => {
       .toBeInTheDocument();
   });
 
+  it("renders and routes exact raw Trigger core properties", () => {
+    const onTriggerCorePropertiesChange = vi.fn();
+    const coreProperties = {
+      autoRemoveKey: 0 as const,
+      factionId: 1,
+      cursorId: 2,
+      highlightHeight: Math.fround(1.5),
+      keyName: " source_key ",
+      portraitId: 3,
+      triggerType: 0,
+    };
+    render(
+      <AreaObjectPolygonDialog
+        dialog={{
+          ...triggerDialog("ACTIVE_NOW"),
+          draft: {
+            ...triggerDialog("ACTIVE_NOW").draft,
+            triggerCoreProperties: coreProperties,
+            triggerCorePropertiesControlState: "ACTIVE_NOW",
+          },
+        }}
+        onToggleCollapsed={vi.fn()}
+        onClose={vi.fn()}
+        onTagChange={vi.fn()}
+        onActiveChange={vi.fn()}
+        onPlayerOnlyChange={vi.fn()}
+        onResetChange={vi.fn()}
+        onResetTimeChange={vi.fn()}
+        onSpawnOptionChange={vi.fn()}
+        onRespawnsFiniteChange={vi.fn()}
+        onRespawnsInfiniteChange={vi.fn()}
+        onTriggerCorePropertiesChange={onTriggerCorePropertiesChange}
+        onPointChange={vi.fn()}
+        onAddPoint={vi.fn()}
+        onRemovePoint={vi.fn()}
+        onResetToSource={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+
+    const keyName = screen.getByLabelText("Trigger Raw KeyName");
+    expect(keyName).toBeEnabled();
+    expect(keyName).toHaveAttribute("maxlength", "256");
+    fireEvent.change(keyName, { target: { value: " target_key " } });
+    expect(onTriggerCorePropertiesChange).toHaveBeenCalledWith({
+      ...coreProperties,
+      keyName: " target_key ",
+    });
+    expect(screen.getByLabelText("Trigger Raw AutoRemoveKey")).not.toBeChecked();
+    expect(screen.getByLabelText("Trigger Raw Faction")).toHaveValue(1);
+    expect(screen.getByLabelText("Trigger Raw Cursor")).toHaveValue(2);
+    expect(screen.getByLabelText("Trigger Raw HighlightHeight")).toHaveValue(1.5);
+    expect(screen.getByLabelText("Trigger Raw PortraitId")).toHaveValue(3);
+    expect(screen.getByLabelText("Trigger Raw Type")).toHaveValue(0);
+    expect(screen.getByText(/numeric enum meanings remain intentionally uninterpreted/))
+      .toBeInTheDocument();
+  });
+
+  it("renders and routes exact raw Trigger trap properties", () => {
+    const onTriggerTrapPropertiesChange = vi.fn();
+    const trapProperties = {
+      trapDetectable: 1,
+      trapDetectDc: 17,
+      trapDisarmable: 1,
+      disarmDc: 23,
+      trapFlag: 0,
+      trapOneShot: 1,
+      trapType: 7,
+    };
+    render(
+      <AreaObjectPolygonDialog
+        dialog={{
+          ...triggerDialog("ACTIVE_NOW"),
+          draft: {
+            ...triggerDialog("ACTIVE_NOW").draft,
+            triggerTrapProperties: trapProperties,
+            triggerTrapPropertiesControlState: "ACTIVE_NOW",
+          },
+        }}
+        onToggleCollapsed={vi.fn()}
+        onClose={vi.fn()}
+        onTagChange={vi.fn()}
+        onActiveChange={vi.fn()}
+        onPlayerOnlyChange={vi.fn()}
+        onResetChange={vi.fn()}
+        onResetTimeChange={vi.fn()}
+        onSpawnOptionChange={vi.fn()}
+        onRespawnsFiniteChange={vi.fn()}
+        onRespawnsInfiniteChange={vi.fn()}
+        onTriggerTrapPropertiesChange={onTriggerTrapPropertiesChange}
+        onPointChange={vi.fn()}
+        onAddPoint={vi.fn()}
+        onRemovePoint={vi.fn()}
+        onResetToSource={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+
+    const trapType = screen.getByLabelText("Trigger Raw TrapType");
+    expect(trapType).toBeEnabled();
+    fireEvent.change(trapType, { target: { value: "11" } });
+    expect(onTriggerTrapPropertiesChange).toHaveBeenCalledWith({
+      ...trapProperties,
+      trapType: 11,
+    });
+    expect(screen.getByLabelText("Trigger Raw TrapDetectable")).toHaveValue(1);
+    expect(screen.getByLabelText("Trigger Raw TrapDetectDC")).toHaveValue(17);
+    expect(screen.getByLabelText("Trigger Raw TrapDisarmable")).toHaveValue(1);
+    expect(screen.getByLabelText("Trigger Raw DisarmDC")).toHaveValue(23);
+    expect(screen.getByLabelText("Trigger Raw TrapFlag")).toHaveValue(0);
+    expect(screen.getByLabelText("Trigger Raw TrapOneShot")).toHaveValue(1);
+    expect(screen.getByText(/all seven bytes remain intentionally uninterpreted/))
+      .toBeInTheDocument();
+  });
+
+  it("renders and routes ordered Trigger VarTable CRUD even when it is the only identity field", () => {
+    const onVariablesChange = vi.fn();
+    render(
+      <AreaObjectPolygonDialog
+        dialog={{
+          objectId: "trigger-0",
+          objectKind: "triggers",
+          draft: {
+            objectId: "trigger-0",
+            objectKind: "triggers",
+            variables: [
+              { name: "Counter", type: "int", value: 1 },
+              { name: "State", type: "string", value: "armed" },
+            ],
+            variablesControlState: "ACTIVE_NOW",
+            points: [
+              { x: "0", y: "0", z: "0" },
+              { x: "4", y: "0", z: "0" },
+              { x: "0", y: "2", z: "0" },
+            ],
+          },
+          validationMessage: null,
+          windowX: 10,
+          windowY: 12,
+          collapsed: false,
+        }}
+        onToggleCollapsed={vi.fn()}
+        onClose={vi.fn()}
+        onTagChange={vi.fn()}
+        onActiveChange={vi.fn()}
+        onPlayerOnlyChange={vi.fn()}
+        onResetChange={vi.fn()}
+        onResetTimeChange={vi.fn()}
+        onSpawnOptionChange={vi.fn()}
+        onRespawnsFiniteChange={vi.fn()}
+        onRespawnsInfiniteChange={vi.fn()}
+        onMaximumCreaturesChange={vi.fn()}
+        onMinimumCreaturesChange={vi.fn()}
+        onVariablesChange={onVariablesChange}
+        onPointChange={vi.fn()}
+        onAddPoint={vi.fn()}
+        onRemovePoint={vi.fn()}
+        onResetToSource={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/exact ordered Trigger VarTable/u)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Trigger variable 1 name"), {
+      target: { value: "Attempts" },
+    });
+    expect(onVariablesChange).toHaveBeenCalledWith([
+      { name: "Attempts", type: "int", value: 1 },
+      { name: "State", type: "string", value: "armed" },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Move Trigger variable 2 up" }));
+    expect(onVariablesChange).toHaveBeenLastCalledWith([
+      { name: "State", type: "string", value: "armed" },
+      { name: "Counter", type: "int", value: 1 },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Add Trigger variable" }));
+    expect(onVariablesChange).toHaveBeenLastCalledWith([
+      { name: "Counter", type: "int", value: 1 },
+      { name: "State", type: "string", value: "armed" },
+      { name: "", type: "int", value: 0 },
+    ]);
+  });
+
   it("routes exact Encounter Tag edits through the shared identity shell", () => {
     const onTagChange = vi.fn();
     render(

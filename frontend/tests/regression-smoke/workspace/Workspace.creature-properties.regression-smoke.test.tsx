@@ -841,7 +841,7 @@ function installCreatureAppearanceCatalogFetch() {
   return fetchMock;
 }
 
-function exactCreatureClassSlotDraft() {
+function exactCreatureClassSlotDraft(includeReorderSpells = false) {
   const scene = createSeedAreaScene();
   const creature = scene.objects.find((object) => object.kind === "creatures");
   if (!creature?.creatureProperties) {
@@ -850,6 +850,37 @@ function exactCreatureClassSlotDraft() {
   const draft = buildCreaturePropertiesDraft(creature);
   creature.creatureProperties.classEntries = [
     { classId: 4, className: "Fighter", level: 3 },
+  ];
+  creature.creatureProperties.spells = [
+    ...(includeReorderSpells ? [{
+      spellId: 11,
+      classIndex: 0,
+      prepared: true,
+      name: "Shield",
+      spellLevel: 0,
+      castingLevel: 3,
+      metaMagic: 0,
+      flags: 1,
+    }, {
+      spellId: 12,
+      classIndex: 0,
+      prepared: true,
+      name: "Burning Hands",
+      spellLevel: 0,
+      castingLevel: 3,
+      metaMagic: 2,
+      flags: 1,
+    }] : []),
+    {
+      spellId: 42,
+      classIndex: 0,
+      prepared: true,
+      name: "Magic Missile",
+      spellLevel: 1,
+      castingLevel: 3,
+      metaMagic: 0,
+      flags: 1,
+    },
   ];
   creature.creatureProperties.advancedSettings = {
     ...(creature.creatureProperties.advancedSettings ?? {}),
@@ -903,13 +934,43 @@ function exactCreatureClassSlotDraft() {
       classNativeType: "int",
       levelNativeType: "short",
       classListGraphSha256: "c".repeat(64),
-      entries: [{
-        classId: 4,
-        level: 3,
-        opaqueSiblingFieldCount: 1,
-        canonicalSpellListFieldCount: 2,
-        spellEntryCount: 3,
-      }],
+       entries: [{
+         classId: 4,
+         level: 3,
+         opaqueSiblingFieldCount: 1,
+         canonicalSpellListFieldCount: 2,
+         spellEntryCount: 3,
+         spellLists: [
+           {
+             listKind: "memorized",
+             spellLevel: 0,
+             entries: [
+               {
+                 spellId: 11,
+                 spellMetaMagic: 0,
+                 spellFlags: 1,
+                 opaqueSiblingFieldCount: 0,
+               },
+               {
+                 spellId: 12,
+                 spellMetaMagic: 2,
+                 spellFlags: 1,
+                 opaqueSiblingFieldCount: 1,
+               },
+             ],
+           },
+           {
+             listKind: "memorized",
+             spellLevel: 1,
+             entries: [{
+               spellId: 42,
+               spellMetaMagic: 0,
+               spellFlags: 1,
+               opaqueSiblingFieldCount: 0,
+             }],
+           },
+         ],
+       }],
       classesTable: {
         resourceName: "classes.2da",
         sourceObjectKey: "runtime-source/vanilla/nwn_base.key/classes.2da",
@@ -2253,5 +2314,179 @@ describe("Regression smoke: creature properties dialog", () => {
     expect(fetchMock.mock.calls.some(([input]) =>
       String(input).includes("/catalog/creatures/starting-packages?") &&
       String(input).includes("classIds=4%2C5"))).toBe(true);
+  });
+
+  it("roundtrips one confirmed retained Creature class spell-list clear", async () => {
+    exactCreatureClassSlotDraft();
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    let dialog = await openCreaturePropertiesDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Spells" }));
+    expect(within(dialog).getByText("Class spell-list clear: ACTIVE_NOW"))
+      .toBeInTheDocument();
+    expect(within(dialog).getByText("Magic Missile")).toBeInTheDocument();
+    const confirmation = within(dialog).getByRole("checkbox", {
+      name: "Confirm class spell list clear",
+    });
+    fireEvent.click(confirmation);
+    const clear = within(dialog).getByRole("button", { name: "Clear Class Spell List" });
+    expect(clear).toBeEnabled();
+    fireEvent.click(clear);
+
+    expect(within(dialog).getByText("Clear staged for class slot 1.")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Magic Missile")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /creature properties/i }))
+        .not.toBeInTheDocument();
+    });
+    dialog = await openCreaturePropertiesDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Spells" }));
+    expect(within(dialog).getByRole("checkbox", {
+      name: "Confirm class spell list clear",
+    })).toBeChecked();
+    expect(within(dialog).getByText("Clear staged for class slot 1.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    await waitFor(() => {
+      const saved = loadLocalSceneDraft("u_builder_001", window.localStorage);
+      const savedCreature = saved?.objects.find((object) => object.kind === "creatures");
+      expect(savedCreature?.creatureProperties?.classSpellClearSlotIndices).toEqual([0]);
+      expect(savedCreature?.creatureProperties?.classSpellClearConfirmed).toBe(true);
+      expect(savedCreature?.creatureProperties?.spells).toEqual([]);
+      expect(savedCreature?.source?.creatureClassIdentityState).toMatchObject({
+        classListGraphSha256: "c".repeat(64),
+        entries: [{
+          classId: 4,
+          level: 3,
+          canonicalSpellListFieldCount: 2,
+          spellEntryCount: 3,
+        }],
+      });
+    });
+  });
+
+  it("roundtrips one confirmed exact retained Creature spell-entry removal", async () => {
+    exactCreatureClassSlotDraft();
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    let dialog = await openCreaturePropertiesDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Spells" }));
+    expect(within(dialog).getByText("Exact spell-entry removal: ACTIVE_NOW"))
+      .toBeInTheDocument();
+    expect(within(dialog).getByText("Magic Missile")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("checkbox", {
+      name: "Confirm class spell entry removal",
+    }));
+    const removalButtons = within(dialog).getAllByRole("button", { name: "Remove Entry" });
+    expect(removalButtons).toHaveLength(3);
+    fireEvent.click(removalButtons[2]!);
+
+    expect(within(dialog).getByText("1 exact spell entry staged for removal."))
+      .toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
+    expect(within(dialog).queryByText("Magic Missile")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /creature properties/i }))
+        .not.toBeInTheDocument();
+    });
+    dialog = await openCreaturePropertiesDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Spells" }));
+    expect(within(dialog).getByRole("checkbox", {
+      name: "Confirm class spell entry removal",
+    })).toBeChecked();
+    expect(within(dialog).getByText("1 exact spell entry staged for removal."))
+      .toBeInTheDocument();
+    expect(within(dialog).queryByText("Magic Missile")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    await waitFor(() => {
+      const saved = loadLocalSceneDraft("u_builder_001", window.localStorage);
+      const savedCreature = saved?.objects.find((object) => object.kind === "creatures");
+      expect(savedCreature?.creatureProperties?.classSpellRemovalTargets).toEqual([{
+        classSlotIndex: 0,
+        listKind: "memorized",
+        spellLevel: 1,
+        entryIndex: 0,
+      }]);
+      expect(savedCreature?.creatureProperties?.classSpellRemovalConfirmed).toBe(true);
+      expect(savedCreature?.creatureProperties?.spells).toEqual([]);
+      expect(savedCreature?.source?.creatureClassIdentityState).toMatchObject({
+        classListGraphSha256: "c".repeat(64),
+        entries: [{
+          classId: 4,
+          level: 3,
+          canonicalSpellListFieldCount: 2,
+          spellEntryCount: 3,
+        }],
+      });
+    });
+  });
+
+  it("roundtrips one confirmed exact retained Creature same-list spell-entry reorder", async () => {
+    exactCreatureClassSlotDraft(true);
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    let dialog = await openCreaturePropertiesDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Spells" }));
+    expect(within(dialog).getByText("Exact spell-entry order: ACTIVE_NOW"))
+      .toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("checkbox", {
+      name: "Confirm class spell entry reorder",
+    }));
+    fireEvent.click(within(dialog).getByRole("button", {
+      name: "Move spell 11 down in memorized L0",
+    }));
+
+    expect(within(dialog).getByText("1 native spell list staged for reorder."))
+      .toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /creature properties/i }))
+        .not.toBeInTheDocument();
+    });
+    dialog = await openCreaturePropertiesDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Spells" }));
+    expect(within(dialog).getByRole("checkbox", {
+      name: "Confirm class spell entry reorder",
+    })).toBeChecked();
+    expect(within(dialog).getByText("1 native spell list staged for reorder."))
+      .toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    await waitFor(() => {
+      const saved = loadLocalSceneDraft("u_builder_001", window.localStorage);
+      const savedCreature = saved?.objects.find((object) => object.kind === "creatures");
+      expect(savedCreature?.creatureProperties?.classSpellReorders).toEqual([{
+        classSlotIndex: 0,
+        listKind: "memorized",
+        spellLevel: 0,
+        entryOrder: [1, 0],
+      }]);
+      expect(savedCreature?.creatureProperties?.classSpellReorderConfirmed).toBe(true);
+      expect(savedCreature?.creatureProperties?.spells?.map((entry) => entry.spellId))
+        .toEqual([12, 11, 42]);
+      expect(savedCreature?.source?.creatureClassIdentityState).toMatchObject({
+        classListGraphSha256: "c".repeat(64),
+        entries: [{
+          classId: 4,
+          level: 3,
+          canonicalSpellListFieldCount: 2,
+          spellEntryCount: 3,
+        }],
+      });
+    });
   });
 });

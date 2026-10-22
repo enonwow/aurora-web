@@ -8,6 +8,7 @@ import type {
   SceneObjectEncounterCreatureListTargetEntry,
   SceneObjectEncounterSpawnPointTargetEntry,
   SceneObjectEncounterVariableTargetEntry,
+  SceneObjectTriggerVariableTargetEntry,
   TerrainBrushKind
 } from "../contracts";
 import type { SceneFacadeBundle } from "./sceneFacadeBundle";
@@ -23,6 +24,8 @@ import type { EncounterCreatureCountStorage } from "../domain/encounterCreatureC
 import type { EncounterScriptResRefsStorage } from "../domain/encounterScriptResRefs";
 import type { TriggerScriptResRefsStorage } from "../domain/triggerScriptResRefs";
 import type { TriggerTransitionStorage } from "../domain/triggerTransitionStorage";
+import type { TriggerCoreProperties } from "../domain/triggerCoreProperties";
+import type { TriggerTrapProperties } from "../domain/triggerTrapProperties";
 import type { ExistingWaypointPropertiesInput } from "./sceneMutationsFacade";
 
 export interface SceneViewportPoint {
@@ -121,6 +124,21 @@ export interface SceneViewportPort {
     scene: AreaScene,
     objectId: string,
     storage: TriggerTransitionStorage,
+  ): AreaScene;
+  setExistingTriggerCorePropertiesById(
+    scene: AreaScene,
+    objectId: string,
+    properties: TriggerCoreProperties,
+  ): AreaScene;
+  setExistingTriggerTrapPropertiesById(
+    scene: AreaScene,
+    objectId: string,
+    properties: TriggerTrapProperties,
+  ): AreaScene;
+  setExistingTriggerVariablesById(
+    scene: AreaScene,
+    objectId: string,
+    variables: readonly SceneObjectTriggerVariableTargetEntry[],
   ): AreaScene;
   setAreaObjectPolygonGeometryById(
     scene: AreaScene,
@@ -303,6 +321,39 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
         scene,
         objectId,
         storage,
+      );
+    },
+    setExistingTriggerCorePropertiesById(
+      scene: AreaScene,
+      objectId: string,
+      properties: TriggerCoreProperties,
+    ): AreaScene {
+      return bundle.mutations.setExistingTriggerCorePropertiesById(
+        scene,
+        objectId,
+        properties,
+      );
+    },
+    setExistingTriggerTrapPropertiesById(
+      scene: AreaScene,
+      objectId: string,
+      properties: TriggerTrapProperties,
+    ): AreaScene {
+      return bundle.mutations.setExistingTriggerTrapPropertiesById(
+        scene,
+        objectId,
+        properties,
+      );
+    },
+    setExistingTriggerVariablesById(
+      scene: AreaScene,
+      objectId: string,
+      variables: readonly SceneObjectTriggerVariableTargetEntry[],
+    ): AreaScene {
+      return bundle.mutations.setExistingTriggerVariablesById(
+        scene,
+        objectId,
+        variables,
       );
     },
     setAreaObjectPolygonGeometryById(

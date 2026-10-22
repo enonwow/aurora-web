@@ -33,6 +33,7 @@ import {
   parseCreatureSoundSetRowsQuery,
   parseCreatureStartingPackageRowsQuery,
   parseCreatureClassRowsQuery,
+  parseCreatureClassSpellRowsQuery,
   parseCreatureSkillRowsQuery,
   parseCreatureFeatRowsQuery,
   parseCreatureSpecialAbilityRowsQuery,
@@ -248,6 +249,32 @@ export class CreaturesController extends TemplateCatalogBaseController {
       query,
       parseCreatureClassRowsQuery,
       (parsed) => this.service.listCreatureClassRows(parsed),
+    );
+  }
+
+  @Get("class-spells")
+  @ApiOperation({ summary: "List a class- and level-bound page of Toolset-visible spells.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "classesTableSha256", required: true })
+  @ApiQuery({ name: "classId", required: true })
+  @ApiQuery({ name: "spellLevel", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature class-spell row page." })
+  @ApiResponse({ status: 404, description: "Authoritative tables unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listClassSpellRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreatureClassSpellRowsQuery,
+      (parsed) => this.service.listCreatureClassSpellRows(parsed),
     );
   }
 

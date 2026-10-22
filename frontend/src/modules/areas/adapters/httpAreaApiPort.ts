@@ -2113,6 +2113,27 @@ const areaDoorTransitionStorageSchema = z.object({
   loadScreenId: z.number().int().min(0).max(0xffff),
 }).strict();
 
+const areaTriggerCorePropertiesSchema = z.object({
+  autoRemoveKey: z.union([z.literal(0), z.literal(1)]),
+  factionId: z.number().int().min(0).max(0xffff_ffff),
+  cursorId: z.number().int().min(0).max(0xff),
+  highlightHeight: z.number().finite()
+    .refine((value) => Math.fround(value) === value),
+  keyName: z.string().max(256).refine((value) => !value.includes("\0")),
+  portraitId: z.number().int().min(0).max(0xffff),
+  triggerType: z.number().int().min(-0x8000_0000).max(0x7fff_ffff),
+}).strict();
+
+const areaTriggerTrapPropertiesSchema = z.object({
+  trapDetectable: z.number().int().min(0).max(0xff),
+  trapDetectDc: z.number().int().min(0).max(0xff),
+  trapDisarmable: z.number().int().min(0).max(0xff),
+  disarmDc: z.number().int().min(0).max(0xff),
+  trapFlag: z.number().int().min(0).max(0xff),
+  trapOneShot: z.number().int().min(0).max(0xff),
+  trapType: z.number().int().min(0).max(0xff),
+}).strict();
+
 const areaDoorTransitionSchema = z.object({
   linkedTarget: z.string(),
   linkedModule: z.string(),
@@ -2529,6 +2550,9 @@ const areaObjectSchema = z.object({
   triggerLocalizedName: areaTriggerLocalizedNameSchema.optional(),
   triggerScriptResRefs: areaTriggerScriptResRefsStorageSchema.optional(),
   triggerTransitionStorage: areaDoorTransitionStorageSchema.optional(),
+  triggerCoreProperties: areaTriggerCorePropertiesSchema.optional(),
+  triggerTrapProperties: areaTriggerTrapPropertiesSchema.optional(),
+  triggerVariables: areaPlaceableVariableProvenanceSchema.optional(),
   encounterTag: areaObjectTagStorageSchema.optional(),
   encounterTemplateResRef: areaEncounterTemplateResRefStorageSchema.optional(),
   waypointTag: areaObjectTagStorageSchema.optional(),
@@ -2741,6 +2765,27 @@ const areaObjectSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["triggerTransitionStorage"],
       message: "Trigger transition storage is valid only for Trigger objects.",
+    });
+  }
+  if (value.triggerCoreProperties !== undefined && value.kind !== "trigger") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["triggerCoreProperties"],
+      message: "Trigger core properties are valid only for Trigger objects.",
+    });
+  }
+  if (value.triggerTrapProperties !== undefined && value.kind !== "trigger") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["triggerTrapProperties"],
+      message: "Trigger trap properties are valid only for Trigger objects.",
+    });
+  }
+  if (value.triggerVariables !== undefined && value.kind !== "trigger") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["triggerVariables"],
+      message: "Trigger VarTable provenance is valid only for Trigger objects.",
     });
   }
   if (value.waypointLocalizedName !== undefined && value.kind !== "waypoint") {
@@ -3772,6 +3817,17 @@ function mapAreaObject(
       : undefined,
     triggerTransitionStorage: input.triggerTransitionStorage
       ? { ...input.triggerTransitionStorage }
+      : undefined,
+    triggerCoreProperties: input.triggerCoreProperties
+      ? { ...input.triggerCoreProperties }
+      : undefined,
+    triggerTrapProperties: input.triggerTrapProperties
+      ? { ...input.triggerTrapProperties }
+      : undefined,
+    triggerVariables: input.triggerVariables
+      ? {
+          expectedEntries: input.triggerVariables.expectedEntries.map((entry) => ({ ...entry })),
+        }
       : undefined,
     encounterTag: input.encounterTag ? { ...input.encounterTag } : undefined,
     encounterTemplateResRef: input.encounterTemplateResRef

@@ -14,7 +14,10 @@ describe("main bootstrap", () => {
       listen: jest.fn().mockResolvedValue(undefined)
     };
     const create = jest.fn().mockResolvedValue(app);
-    const fastifyAdapterCtor = jest.fn().mockImplementation(() => ({ adapter: true }));
+    const fastifyInstance = { addHook: jest.fn() };
+    const adapter = { adapter: true, getInstance: jest.fn().mockReturnValue(fastifyInstance) };
+    const fastifyAdapterCtor = jest.fn().mockImplementation(() => adapter);
+    const registerAreaEventScriptHttpBodyLimit = jest.fn();
 
     jest.doMock("@nestjs/core", () => ({
       NestFactory: {
@@ -30,6 +33,10 @@ describe("main bootstrap", () => {
     jest.doMock("../../src/common/openapi/swagger", () => ({
       setupSwagger
     }));
+    jest.doMock(
+      "../../src/modules/areas/adapters/inbound/http/area-event-script-body-limit",
+      () => ({ registerAreaEventScriptHttpBodyLimit })
+    );
 
     jest.isolateModules(() => {
       require("../../src/main");
@@ -40,6 +47,8 @@ describe("main bootstrap", () => {
     expect(fastifyAdapterCtor).toHaveBeenCalledWith({
       logger: true
     });
+    expect(adapter.getInstance).toHaveBeenCalledTimes(1);
+    expect(registerAreaEventScriptHttpBodyLimit).toHaveBeenCalledWith(fastifyInstance);
     expect(app.setGlobalPrefix).toHaveBeenCalledWith("api/v1");
     expect(setupCors).toHaveBeenCalledWith(app, config);
     expect(setupSwagger).toHaveBeenCalledWith(app, config);

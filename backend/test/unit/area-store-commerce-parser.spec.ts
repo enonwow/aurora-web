@@ -29,6 +29,7 @@ describe("Area GIT retained Store commerce parsing", () => {
           maxBuyPrice: -1,
           storeGold: -1,
         },
+        variables: { expectedEntries: [] },
       });
   });
 
@@ -44,7 +45,7 @@ describe("Area GIT retained Store commerce parsing", () => {
   ] as const)("keeps %s commerce preserve-only", (_label, fields) => {
     const store = parseAreaObjectsFromGitGff(git(fields as SupportedGffField[]))?.stores[0];
     expect(store).toBeDefined();
-    expect(store?.storeMetadata).toBeUndefined();
+    expect(store?.storeMetadata).toEqual({ variables: { expectedEntries: [] } });
   });
 
   it("keeps commerce preserve-only for a non-type-11 Store struct", () => {

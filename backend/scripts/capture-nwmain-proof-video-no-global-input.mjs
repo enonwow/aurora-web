@@ -4,6 +4,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { capturePerWindowVideo, perWindowPlan, rejectCapturePathAlias } from "./lib/nwmain-per-window-capture.mjs";
 
 const DEFAULT_PROBE_INTERVAL_MS = 250;
 const MAX_DURATION_SECONDS = 90;
@@ -15,8 +16,17 @@ await main();
 async function main() {
   const [command, ...rawArgs] = process.argv.slice(2);
   const options = parseArgs(rawArgs);
-  const allowed = new Set(["pid", "startedAtUtc", "out", "resultOut", "ffmpeg", "durationSeconds", "fps", "probeIntervalMs"]);
+  const allowed = new Set(["pid", "startedAtUtc", "out", "resultOut", "ffmpeg", "durationSeconds", "fps", "probeIntervalMs", "captureMethod", "windowHwnd", "monitorDevice", "restoreWithoutActivation", "ambientWindowPolicy", "allowPrimaryMonitor"]);
   rejectUnknownOptions(options, allowed);
+  const captureMethod = options.captureMethod ?? "physical";
+  if (!["physical", "printwindow"].includes(captureMethod)) throw new Error("capture_method_invalid");
+  const ambientWindowPolicy = options.ambientWindowPolicy ?? "strict";
+  if (!["strict", "observe"].includes(ambientWindowPolicy)) throw new Error("ambient_window_policy_invalid");
+  const restoreWithoutActivation = options.restoreWithoutActivation === "true";
+  if (options.restoreWithoutActivation !== undefined && !["true", "false"].includes(options.restoreWithoutActivation)) throw new Error("restore_without_activation_invalid");
+  const allowPrimaryMonitor = options.allowPrimaryMonitor === "true";
+  if (options.allowPrimaryMonitor !== undefined && !["true", "false"].includes(options.allowPrimaryMonitor)) throw new Error("primary_monitor_policy_invalid");
+  if (captureMethod === "physical" && (options.windowHwnd || options.monitorDevice || options.restoreWithoutActivation || options.ambientWindowPolicy !== undefined || options.allowPrimaryMonitor !== undefined)) throw new Error("per_window_options_require_printwindow");
 
   const out = requiredPath(options.out, "--out");
   const ffmpeg = requiredPath(options.ffmpeg, "--ffmpeg");
@@ -24,6 +34,7 @@ async function main() {
   const fps = boundedInteger(options.fps, "--fps", 1, MAX_FPS);
   const probeIntervalMs = boundedInteger(options.probeIntervalMs ?? String(DEFAULT_PROBE_INTERVAL_MS), "--probeIntervalMs", 100, 2000);
   const resultOut = options.resultOut ? requiredPath(options.resultOut, "--resultOut") : null;
+  rejectCapturePathAlias(out, resultOut);
 
   if (!existsSync(ffmpeg)) throw new Error(`ffmpeg_missing:${ffmpeg}`);
   if (existsSync(out)) throw new Error(`capture_output_already_exists:${out}`);
@@ -31,6 +42,11 @@ async function main() {
 
   if (command === "dry-run") {
     if (options.pid || options.startedAtUtc || options.resultOut) throw new Error("dry_run_live_identity_options_forbidden");
+    if (options.windowHwnd || options.monitorDevice) throw new Error("dry_run_live_identity_options_forbidden");
+    if (captureMethod === "printwindow") {
+      print({ok: true, command, status: "nwmain_printwindow_video_capture_plan_valid", output: out, outputExists: false, ffmpeg: mediaRecord(ffmpeg), durationSeconds, fps, ...perWindowPlan({restoreWithoutActivation, ambientWindowPolicy, allowPrimaryMonitor})});
+      return;
+    }
     print({
       ok: true,
       command,
@@ -54,20 +70,29 @@ async function main() {
   if (command !== "capture") throw new Error("Use: dry-run or capture.");
   const pid = positiveInteger(options.pid, "--pid");
   const startedAtUtc = absoluteUtcInstant(options.startedAtUtc, "--startedAtUtc");
+  let receiptPublicationAttempted = false;
+  let receiptPublicationError = null;
   try {
-    const result = await capture({ pid, startedAtUtc, out, ffmpeg, durationSeconds, fps, probeIntervalMs });
+    const result = captureMethod === "printwindow" ? await capturePerWindowVideoResult({ pid, startedAtUtc, out, ffmpeg, durationSeconds, fps,
+      windowHwnd: positiveInteger(options.windowHwnd, "--windowHwnd"), monitorDevice: required(options.monitorDevice, "--monitorDevice"), restoreWithoutActivation, ambientWindowPolicy, allowPrimaryMonitor }) : await capture({ pid, startedAtUtc, out, ffmpeg, durationSeconds, fps, probeIntervalMs });
     if (resultOut) {
-      mkdirSync(dirname(resultOut), { recursive: true });
-      writeFileSync(resultOut, `${JSON.stringify(result, null, 2)}\n`);
+      receiptPublicationAttempted = true;
+      try {
+        mkdirSync(dirname(resultOut), { recursive: true });
+        writeFileSync(resultOut, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
+      } catch (publicationError) {
+        receiptPublicationError = publicationError;
+        throw publicationError;
+      }
     }
     print(result);
   } catch (error) {
-    rmSync(out, { force: true });
+    if (captureMethod === "physical") rmSync(out, { force: true });
     const failure = {
-      version: "aurora-nwmain-proof-video-capture/v1",
+      version: captureMethod === "printwindow" ? `aurora-nwmain-printwindow-capture/v${ambientWindowPolicy === "observe" ? 2 : 1}` : "aurora-nwmain-proof-video-capture/v1",
       ok: false,
       status: "failed",
-      blockerCode: "capture_identity_or_occlusion_drift",
+      blockerCode: receiptPublicationError ? "capture_receipt_publication_failed" : "capture_identity_or_occlusion_drift",
       message: error instanceof Error ? error.message : String(error),
       process: { name: "nwmain", pid, startedAtUtc },
       output: out,
@@ -75,15 +100,36 @@ async function main() {
       usesGlobalInput: false,
       changesZOrder: false,
       activatesWindow: false,
-      capturedArtifactPreserved: false,
+      capturedArtifactPreserved: captureMethod === "printwindow" && existsSync(out),
+      captureMethod,
+      ...(captureMethod === "printwindow" ? {ambientWindowPolicy} : {}),
     };
-    if (resultOut) {
-      mkdirSync(dirname(resultOut), { recursive: true });
-      writeFileSync(resultOut, `${JSON.stringify(failure, null, 2)}\n`);
+    if (resultOut && !receiptPublicationAttempted) {
+      receiptPublicationAttempted = true;
+      try {
+        mkdirSync(dirname(resultOut), { recursive: true });
+        writeFileSync(resultOut, `${JSON.stringify(failure, null, 2)}\n`, { flag: "wx" });
+      } catch (publicationError) { receiptPublicationError = publicationError; }
     }
+    if (receiptPublicationError) failure.receiptPublication = {
+      status: "failed", code: receiptPublicationError.code === "EEXIST" ? "receipt_destination_exists" : "receipt_publication_unavailable",
+    };
     print(failure);
     process.exitCode = 2;
   }
+}
+
+async function capturePerWindowVideoResult(options) {
+  const startedAt = new Date().toISOString();
+  const { packet, arguments: encoderArguments, validation } = await capturePerWindowVideo({...options,
+    validateEncodedVideo: (path, width, height) => validateVideo(options.ffmpeg, path, {width, height, frameCount: Math.ceil(options.durationSeconds * options.fps)})});
+  const width = packet.bounds.width - packet.bounds.width % 2, height = packet.bounds.height - packet.bounds.height % 2;
+  return { ...packet,
+    process: {name: "nwmain", pid: options.pid, startedAtUtc: options.startedAtUtc, hwnd: options.windowHwnd, responding: true},
+    capture: {source: perWindowPlan().captureSource, method: "printwindow", path: options.out, sha256: sha256(options.out), sizeBytes: readFileSync(options.out).byteLength,
+      width, height, fps: options.fps, requestedDurationSeconds: options.durationSeconds, startedAt, finishedAt: new Date().toISOString(),
+      ffmpeg: mediaRecord(options.ffmpeg), arguments: encoderArguments, validation},
+  };
 }
 
 async function capture({ pid, startedAtUtc, out, ffmpeg, durationSeconds, fps, probeIntervalMs }) {
@@ -287,6 +333,10 @@ function validateVideo(ffmpeg, out, expected) {
   if (!/Video:\s+h264/iu.test(diagnostics)) throw new Error("nwmain_video_codec_not_h264");
   const dimensions = new RegExp(`${expected.width}x${expected.height}`, "u");
   if (!dimensions.test(diagnostics)) throw new Error("nwmain_video_dimensions_mismatch");
+  if (expected.frameCount !== undefined) {
+    const frames = [...diagnostics.matchAll(/frame=\s*(\d+)/gu)];
+    if (Number(frames.at(-1)?.[1]) !== expected.frameCount) throw new Error("nwmain_video_frame_count_mismatch");
+  }
   return { decode: "verified", codec: "h264", faststart: true, moovOffset, mdatOffset, expectedWidth: expected.width, expectedHeight: expected.height };
 }
 

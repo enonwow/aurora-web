@@ -2,7 +2,10 @@ import {
   AREA_PLACEABLE_LOCALIZED_STRING_MUTATION_FIELDS,
   MAX_AREA_PLACEABLE_DESCRIPTION_ASCII_BYTES,
   MAX_AREA_PLACEABLE_LOC_NAME_ASCII_BYTES,
+  areaPlaceableLocalizedStringProfileForEntries,
   buildAreaPlaceableInlineAsciiStorage,
+  cloneAreaPlaceableLocalizedStringEntries,
+  readEditableAreaPlaceableLocalizedStringStorage,
   readAreaPlaceableInlineAsciiStorage,
   readExistingAreaPlaceableLocalizedStringMutations,
 } from "../../src/modules/areas/domain/area-placeable-localized-string-mutation";
@@ -193,6 +196,143 @@ describe("bounded existing Placeable localized-string mutation", () => {
     ]);
     expect(Object.isFrozen(value)).toBe(true);
     expect(Object.isFrozen(value?.[0])).toBe(true);
+  });
+
+  it("admits and detaches a complete ordered inline-ASCII entry profile", () => {
+    const source = {
+      present: true,
+      strRef: 0xffff_ffff,
+      entries: [
+        { languageId: 10, textBytesBase64: Buffer.from("Skrzynia", "ascii").toString("base64") },
+        { languageId: 0, textBytesBase64: Buffer.from("Chest", "ascii").toString("base64") },
+        { languageId: 2, textBytesBase64: "" },
+      ],
+    };
+    const storage = readEditableAreaPlaceableLocalizedStringStorage(source, 256);
+    expect(storage).toEqual({
+      value: "Chest",
+      profile: "multi_entry_inline_ascii",
+      entries: [
+        { languageId: 10, text: "Skrzynia" },
+        { languageId: 0, text: "Chest" },
+        { languageId: 2, text: "" },
+      ],
+    });
+    expect(storage?.entries).not.toBe(source.entries);
+    expect(Object.isFrozen(storage)).toBe(true);
+    expect(Object.isFrozen(storage?.entries)).toBe(true);
+    expect(Object.isFrozen(storage?.entries[0])).toBe(true);
+    expect(areaPlaceableLocalizedStringProfileForEntries([])).toBe("empty_inline_ascii");
+    expect(areaPlaceableLocalizedStringProfileForEntries([{ languageId: 0, text: "A" }]))
+      .toBe("simple_inline_ascii");
+    const cloned = cloneAreaPlaceableLocalizedStringEntries(storage!.entries);
+    expect(cloned).toEqual(storage!.entries);
+    expect(cloned).not.toBe(storage!.entries);
+    expect(cloned[0]).not.toBe(storage!.entries[0]);
+  });
+
+  it("reads a complete-list CAS that edits, removes, reorders, and adds a catalog entry", () => {
+    const mutation = readExistingAreaPlaceableLocalizedStringMutations([{
+      field: "LocName",
+      expectedValue: "Chest",
+      value: "Chest",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 0, text: "Chest" },
+        { languageId: 77, text: "Legacy" },
+        { languageId: 2, text: "Coffre" },
+      ],
+      valueEntries: [
+        { languageId: 10, text: "Skrzynia" },
+        { languageId: 0, text: "Chest" },
+        { languageId: 77, text: "Legacy 2" },
+      ],
+    }]);
+    expect(mutation).toEqual([{
+      field: "LocName",
+      expectedValue: "Chest",
+      value: "Chest",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 0, text: "Chest" },
+        { languageId: 77, text: "Legacy" },
+        { languageId: 2, text: "Coffre" },
+      ],
+      valueEntries: [
+        { languageId: 10, text: "Skrzynia" },
+        { languageId: 0, text: "Chest" },
+        { languageId: 77, text: "Legacy 2" },
+      ],
+    }]);
+    expect(Object.isFrozen(mutation?.[0]?.expectedEntries)).toBe(true);
+    expect(Object.isFrozen(mutation?.[0]?.valueEntries?.[0])).toBe(true);
+  });
+
+  it.each([
+    ["TLK source", { present: true, strRef: 1, entries: [] }],
+    ["duplicate identifiers", {
+      present: true,
+      strRef: 0xffff_ffff,
+      entries: [
+        { languageId: 0, textBytesBase64: "QQ==" },
+        { languageId: 0, textBytesBase64: "Qg==" },
+      ],
+    }],
+    ["alternate-only entries", {
+      present: true,
+      strRef: 0xffff_ffff,
+      entries: [{ languageId: 2, textBytesBase64: "QQ==" }],
+    }],
+    ["non-ASCII entry", {
+      present: true,
+      strRef: 0xffff_ffff,
+      entries: [
+        { languageId: 0, textBytesBase64: "QQ==" },
+        { languageId: 2, textBytesBase64: "xIU=" },
+      ],
+    }],
+  ])("rejects a complete-list %s profile", (_label, source) => {
+    expect(readEditableAreaPlaceableLocalizedStringStorage(source, 256)).toBeUndefined();
+  });
+
+  it.each([
+    ["missing entries mate", {
+      field: "LocName", expectedValue: "A", value: "B",
+      expectedProfile: "simple_inline_ascii",
+      expectedEntries: [{ languageId: 0, text: "A" }],
+    }],
+    ["wrong source profile", {
+      field: "LocName", expectedValue: "A", value: "B",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [{ languageId: 0, text: "A" }],
+      valueEntries: [{ languageId: 0, text: "B" }],
+    }],
+    ["unknown added identifier", {
+      field: "LocName", expectedValue: "A", value: "A",
+      expectedProfile: "simple_inline_ascii",
+      expectedEntries: [{ languageId: 0, text: "A" }],
+      valueEntries: [{ languageId: 0, text: "A" }, { languageId: 99, text: "X" }],
+    }],
+    ["empty newly added entry", {
+      field: "Description", expectedValue: "", value: "",
+      expectedProfile: "empty_inline_ascii",
+      expectedEntries: [],
+      valueEntries: [{ languageId: 0, text: "" }],
+    }],
+    ["alternate-only target", {
+      field: "Description", expectedValue: "A", value: "",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [{ languageId: 0, text: "A" }, { languageId: 2, text: "B" }],
+      valueEntries: [{ languageId: 2, text: "B" }],
+    }],
+    ["unchanged complete list", {
+      field: "LocName", expectedValue: "A", value: "A",
+      expectedProfile: "simple_inline_ascii",
+      expectedEntries: [{ languageId: 0, text: "A" }],
+      valueEntries: [{ languageId: 0, text: "A" }],
+    }],
+  ])("rejects a complete-list mutation with %s", (_label, mutation) => {
+    expect(readExistingAreaPlaceableLocalizedStringMutations([mutation])).toBeNull();
   });
 
   it.each([

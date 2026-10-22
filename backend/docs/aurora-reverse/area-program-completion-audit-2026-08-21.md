@@ -1273,6 +1273,7 @@ Store-template Create, remaining object matrices, the complete 99-tileset
 Add/Render matrix, and independent PathConnect/WOK proof remain open. No Docker
 command, managed service, watcher, browser, Chrome, capture, Toolset/NWN
 process, mutation test, sub-agent, xoreos source, or other GPL source was used.
+
 This checkpoint does not promote Store authoring or the overall Area program to
 complete.
 
@@ -1987,9 +1988,10 @@ production builds. The complete parser file retains two unrelated Item
 metadata fixture failures; focused Creature parsing is green and this slice
 does not alter those Item paths.
 
-Creature authoring remains `partial`/`blocked`. Full multilingual editing for
-all three localized strings remains
-`creature_full_localized_string_editor_pending`; body parts, colors, wings,
+Creature authoring remains `partial`/`blocked`. The later ordered-inline
+checkpoint narrows the remaining localized-string work to
+`creature_tlk_codepage_and_unresolved_language_entry_authoring_pending`;
+body parts, colors, wings,
 tail, the coupled `CRAdjust` calculator, arbitrary class spell graphs, special
 abilities, live browser readback, Toolset Save/Build/reopen, NWN behavior, and
 the full tile/render/connectivity program remain open.
@@ -2455,3 +2457,419 @@ Ready replacement plan
 replaces v30 and remains `0/3380` with zero accepted PathConnect rows. No
 Docker command, service, watcher, browser/capture, Toolset/NWN process,
 mutation test, sub-agent, xoreos source, or other GPL source was used.
+
+## Existing retained Trigger raw transition-storage checkpoint — 2026-09-05
+
+Checkpoint `245` and capability revision `2026-09-02.178` implement one exact
+all-or-nothing retained Trigger tuple: `LinkedTo : CExoString`,
+`LinkedToFlags : Byte`, and `LoadScreenID : Word`. Immutable primary
+reader/writer evidence closes the labels, types, ownership, and storage
+round-trip boundary. The implementation deliberately treats all three as raw
+storage; it does not infer destination type, decode flags, validate a target,
+resolve a loading-screen catalog row, or claim NWN traversal behavior.
+
+The implemented path covers strict source parsing and fingerprint identity,
+detached provenance, source/target projection, immutable type-`1` ordinal
+planning, exact three-field CAS writing, whole-candidate and persisted
+readback, content-free best-effort telemetry, visible raw Trigger Properties
+controls, frontend drafts/history, one Apply/Cancel/reopen/OK/local-Save flow,
+and revision-fenced ARE/GIT/GIC/IFO publication. Unrelated Trigger fields and
+resources remain preserved, and the tuple composes with other independently
+admitted Trigger mutations.
+
+Affected backend tests pass `1705/1705`, Area Update integration passes
+`88/88`, affected frontend tests pass `1294/1294`, full regression-smoke
+passes `137/137`, and both production builds pass. Full frontend unit remains
+globally red at `5893/5895` because of the same two pre-existing out-of-slice
+expectation failures in Placeable render-package shape and renderer material
+side; neither failure exercises Trigger transition storage.
+
+The Area program remains `missing`, not complete. Fresh browser Save/reopen,
+Toolset Save/Build/reopen with packed GIT readback, native transition semantics,
+targeted NWN traversal/loading-screen proof, remaining Trigger properties,
+variables and activation, 99-tileset Add/Render and adjacency evidence,
+independent PathConnect/WOK proof, and final certification remain open. Runtime
+profile v31 is now historical after production source writes; the next
+immutable profile must be generated only after the continuing source-writing
+lane settles. No Docker command, container, service, watcher, browser/capture,
+Toolset/NWN process, mutation test, sub-agent, xoreos source, or other GPL
+source was used.
+
+## Existing retained Trigger ordered VarTable checkpoint — 2026-09-13
+
+Checkpoint `246` and capability revision `2026-09-05.179` implement exact
+ordered scripting-variable CRUD for one retained type-`1` GIT Trigger.
+Immutable primary Aurora reader/writer evidence binds `VarTable` directly to
+the placed Trigger and proves the native ordered `Name`/`Type`/`Value` table
+shape. The implementation admits only exact `int`, binary32 `float`, and
+`string` entries under the frozen budgets; it preserves physical order,
+duplicate names, empty names, and empty strings. Unsupported native types and
+malformed, stale, ambiguous, cross-family, or unchanged inputs fail closed.
+
+Backend parsing/fingerprinting, detached projection, immutable-ordinal
+planning, exact create/replace/remove writing, candidate and persisted
+readback, content-free best-effort telemetry, and revision-fenced
+ARE/GIT/GIC/IFO publication are implemented. Frontend HTTP and scene mapping,
+immutable provenance, saved drafts and clone/history, visible ordered
+add/edit/remove/reorder controls, facade/viewport routing, and one
+Apply/Cancel/reopen/OK/local-Save flow are implemented. Trigger variables
+compose atomically with the already admitted Trigger mutations while leaving
+renderer identity and unrelated resources unchanged.
+
+The compiler suite passes `196/196`, Area Update integration passes `88/88`,
+capability-catalog coverage passes `14/14`, and the bounded frontend HTTP,
+mapper, draft, dialog, and viewport groups pass `370/370`, `139/139`,
+`696/696`, `10/10`, and `2/2`. Full frontend unit passes `5,911/5,913`; the
+two failures remain the known parallel Placeable render-package/material-side
+expectation drift. Full regression-smoke passes `137/137`, and both production
+builds pass. The full backend unit run
+identified four Area fixture/expectation drifts that were corrected and
+verified in focused suites; five VFX/bootstrap suites remain red outside this
+Area slice.
+
+The Level 4 Area program remains `missing`, not complete. Guarded browser
+Save/reopen, exact-candidate Toolset Save/Build/reopen with packed `VarTable`
+inspection, targeted NWN variable behavior, remaining Trigger
+properties/activation, the uncaptured 99-tileset Add/Render and adjacency
+matrix, independent PathConnect/WOK proof, and final certification remain
+open. Runtime profile v31 is historical after continuing source writes; no
+replacement profile or capture was produced in this offline lane. No Docker
+command, container, service, watcher, browser/Chrome, capture, Toolset/NWN
+process, mutation test, sub-agent, xoreos source, or other GPL source was used.
+
+## Existing retained Trigger core-properties checkpoint — 2026-09-13
+
+Checkpoint `247` and capability revision `2026-09-13.180` implement the exact
+all-or-nothing retained Trigger tuple `AutoRemoveKey : Byte`,
+`Faction : DWord`, `Cursor : Byte`, `HighlightHeight : Float`,
+`KeyName : CExoString`, `PortraitId : Word`, and `Type : Int`. Primary common
+and placed Trigger reader/writer evidence plus frozen Toolset resources close
+the storage labels, types, ownership, and authoring-surface boundary. Numeric
+enum meanings and runtime behavior remain deliberately uninterpreted.
+
+The backend now provides strict parsing/fingerprinting, detached projection,
+immutable-ordinal CAS planning, exact in-place seven-field writing, candidate
+and persisted readback, low-cardinality telemetry, and revision-fenced atomic
+ARE/GIT/GIC/IFO publication. The frontend provides exact HTTP validation,
+detached provenance and target state, draft/history cloning, visible raw
+controls, facade/viewport routing, and Apply/Cancel/reopen/OK/local Save.
+
+Affected backend unit suites pass `1257/1257`, Area Update integration passes
+`88/88`, capability-catalog assertions pass `14/14`, affected frontend unit
+suites pass `1324/1324`, full regression-smoke passes `137/137`, and both
+production builds pass. Full frontend unit passes `5947/5949`; the two
+failures are the known parallel Placeable render-package/material-side drift
+and do not exercise Trigger core properties.
+
+The Area program remains `missing`, not complete. Separate Trigger trap
+properties, fresh guarded browser readback, exact-candidate Toolset
+Save/Build/reopen, targeted NWN behavior, the 99-tileset Add/Render and
+adjacency matrix, independent PathConnect/WOK proof, and final certification
+remain open. No Docker command, container, service, watcher, browser/Chrome,
+capture, Toolset/NWN process, mutation test, sub-agent, xoreos source, or
+other GPL source was used.
+
+## Existing retained Trigger trap-properties checkpoint — 2026-09-13
+
+Checkpoint `248` and capability revision `2026-09-13.181` implement the exact
+all-or-nothing retained Trigger Byte tuple `TrapDetectable`, `TrapDetectDC`,
+`TrapDisarmable`, `DisarmDC`, `TrapFlag`, `TrapOneShot`, and `TrapType`.
+Primary common Trigger reader/writer decompilation and frozen placed-Trigger
+readback close exact labels, types, ownership, and writer order. Every value
+remains uninterpreted raw `0..255` storage; no Boolean, DC, flag,
+`traps.2da`, event, activation, faction, or NWN behavior is inferred.
+
+The backend provides strict parsing/fingerprinting, detached projection,
+immutable-ordinal planning, exact seven-field CAS writing, candidate and
+persisted readback, content-free telemetry, and revision-fenced atomic
+ARE/GIT/GIC/IFO publication. The frontend provides exact HTTP validation,
+detached provenance and target state, saved-draft/history cloning, seven
+visible raw controls, facade/viewport routing, and
+Apply/Cancel/reopen/OK/local-Save behavior.
+
+Affected backend unit suites pass `1,255/1,255`, Area Update integration
+passes `88/88`, affected frontend tests pass `1,334/1,334`, full regression-
+smoke passes `137/137`, full frontend unit passes `5,979/5,979`, and both
+production builds pass. The previously exposed global Placeable issues were
+closed by preserving the light `sourceModelHash` and removing the unproven
+`DoubleSide` expectation from the render-filter test.
+
+This is not full Area completion. Fresh guarded browser readback,
+exact-candidate Toolset Save/Build/reopen, targeted NWN trap behavior, Trigger
+rotation/runtime semantics, the uncaptured 99-tileset Add/Render and adjacency
+matrix, independent PathConnect/WOK proof, and final certification remain
+open. No Docker command, container, service, watcher, browser/Chrome, capture,
+Toolset/NWN process, mutation test, sub-agent, xoreos source, or other GPL
+source was used.
+
+## Global backend unit-gate repair checkpoint — 2026-09-13
+
+After checkpoint `248`, the complete backend unit gate is green at
+`513/513` suites and `8,428/8,428` assertions, and the backend production
+build passes. Five failures were stale contract fixtures for bootstrap body
+limits, VFX health identity, catalog animation lineage, the VFX capture script,
+and Placeable lighting proof failure handling. The lighting validator also had
+a real temporal-dead-zone fault: its top-level dispatch could test
+`GateFailure` before the class was initialized, preventing required blocker
+artifacts from being written. Dispatch now occurs after the class declaration.
+
+The sixth failure exposed a separate native-format defect in Area Item
+publication. GIT Item instances were synthesizing blueprint-only script labels
+(`OnUsed`, `OnHeartbeat`, `OnUserDefined`, and `OnInvDisturbed`). The GIT Item
+writer no longer emits those fields; focused writer, parser, and Area service
+readback tests pass `371/371`. This preserves the documented Item blueprint/GIT
+ownership boundary instead of weakening the parser expectation.
+
+This checkpoint improves release confidence but does not complete the Area
+program. Fresh guarded browser readback, exact-candidate Toolset/NWN proof, the
+uncaptured 99-tileset Add/Render and adjacency matrix, independent
+PathConnect/WOK proof, and final certification remain open. No Docker command,
+container, service, watcher, browser/Chrome, capture, Toolset/NWN process,
+mutation test, sub-agent, xoreos source, or other GPL source was used.
+
+## Existing retained Placeable ordered inline localized-string checkpoint — 2026-09-13
+
+Checkpoint `250` and capability revision `2026-09-13.182` implement complete
+ordered inline-ASCII editing for the `LocName` and `Description` localized
+strings of one retained type-`9` GIT Placeable. Primary Aurora
+reader/writer decompilation and frozen readback evidence bind both labels to
+the placed object and prove the native `CExoLocString` string-reference plus
+ordered language-entry storage. The admitted contract preserves exact entry
+order and retained source language IDs, including unresolved IDs; allows
+additions only from the frozen language catalog; and rejects duplicates,
+alternate-only targets, empty new entries, non-printable ASCII, non-ASCII,
+oversized or stale mutations. TLK resolution and codepage conversion remain
+outside this bounded claim.
+
+The backend now provides strict source and target parsing, immutable source
+fingerprints, detached expected/target projection, immutable type-`9` ordinal
+planning, exact replace/remove list writing, complete candidate and persisted
+readback, content-free best-effort telemetry, and revision-fenced atomic
+ARE/GIT/GIC/IFO publication. The frontend now projects and deep-clones full
+entry lists, validates restored drafts, exposes ordered edit/add/remove/reorder
+controls for both fields, synchronizes scalar language-zero text without
+discarding alternate entries, and carries the complete target through
+Apply/reopen/OK/local Save.
+
+Verification passes `2,384/2,384` affected backend unit assertions, `89/89`
+Area Update integration assertions, `982/982` affected frontend assertions,
+`5,997/5,997` full frontend unit assertions, `138/138` full regression-smoke
+assertions, `8,443/8,443` full backend unit assertions, and both production
+builds. The integration proof reparses the published GFF and verifies exact
+ordered localized entries while GIC/IFO remain byte-identical and the receipt
+reports verified persisted readback.
+
+This closes the bounded Placeable inline-ASCII list editor, not the entire
+Area program. TLK-backed text, codepage-aware non-ASCII authoring, authoring
+of unresolved new language IDs, fresh guarded browser Save/reopen,
+exact-candidate Toolset Save/Build/reopen, targeted NWN presentation,
+the uncaptured 99-tileset Add/Render and adjacency matrix, independent
+PathConnect/WOK proof, and final release certification remain open. No Docker
+command, container, service, watcher, browser/Chrome, capture, Toolset/NWN
+process, mutation test, sub-agent, xoreos source, or other GPL source was used.
+
+## Existing retained Item ordered inline localized-string checkpoint — 2026-09-13
+
+Checkpoint `251` and capability revision `2026-09-13.183` implement complete
+ordered inline-ASCII editing for `LocalizedName`, `Description`, and
+`DescIdentified` on one retained type-`0` GIT Item. Primary Aurora
+reader/writer decompilation and frozen placed-Item readback bind all three
+native `CExoLocString` fields to the instance and preserve their exact
+string-reference identity, language-entry order, retained identifiers, and
+texts. New identifiers are admitted only from the frozen language catalog;
+duplicates, alternate-only targets, empty catalog additions, non-printable or
+non-ASCII text, budget violations, stale sources, wrong ordinals, and
+cross-family requests fail closed.
+
+The backend now carries all three complete lists through strict parsing and
+fingerprinting, detached expected/target projection, immutable Item-ordinal
+planning, exact replace/remove writing, candidate and persisted readback,
+content-free telemetry, and revision-fenced atomic ARE/GIT/GIC/IFO
+publication. The frontend now deep-clones the lists, validates restored
+drafts, exposes one shared ordered entry editor for Item and Placeable,
+synchronizes the scalar language-zero value without discarding alternates,
+and preserves the complete Item target through Apply/reopen/OK/local Save.
+The legacy scalar-only Item contract remains accepted and type-checked.
+
+Verification passes `513/513` backend unit suites with `8,448/8,448`
+assertions, `90/90` Area Update integration assertions, `589/589` frontend
+unit files with `6,014/6,014` assertions, `48/48` regression-smoke files with
+`139/139` assertions, and both production builds. The integration proof
+reparses the published GFF and verifies all three requested ordered lists
+while GIC/IFO remain byte-identical and the receipt reports verified Item
+readback.
+
+This closes the bounded Item inline-ASCII list editor, not the entire Area
+program. Item TLK-backed text, codepage-aware non-ASCII authoring, new
+unresolved-language rows, guarded browser Save/reopen, exact-candidate
+Toolset Save/Build/reopen and targeted NWN presentation, the uncaptured
+99-tileset Add/Render and adjacency matrix, independent PathConnect/WOK
+proof, remaining catalog blockers, and final release certification remain
+open. No Docker command, container, service, watcher, browser/Chrome,
+capture, Toolset/NWN process, mutation test, sub-agent, xoreos source, or
+other GPL source was used.
+
+## Existing retained Creature ordered inline localized-string checkpoint — 2026-09-13
+
+Checkpoint `252` and capability revision `2026-09-13.184` implement complete
+ordered inline-ASCII editing for `FirstName`, `LastName`, and `Description` on
+one retained type-`4` GIT Creature. The previously frozen primary Aurora
+reader/writer decompilation and Toolset form evidence bind all three native
+`CExoLocString` fields to the placed Creature and preserve complete string-
+reference identity, language-entry order, identifiers, and texts. New
+identifiers are admitted only from the frozen language catalog; duplicates,
+alternate-only targets, empty catalog additions, non-printable or non-ASCII
+text, budget violations, stale sources, wrong ordinals, and cross-family
+requests fail closed.
+
+The backend carries all three complete lists through strict parsing and
+fingerprinting, detached expected/target projection, immutable Creature-
+ordinal planning, exact list replacement/removal, candidate and persisted
+readback, and revision-fenced atomic ARE/GIT/GIC/IFO publication. The frontend
+deep-clones the lists, validates restored drafts, exposes visible ordered
+edit/add/remove/reorder controls, synchronizes scalar identifier-`0` text
+without discarding alternates, and preserves the complete target through
+Apply/reopen/OK/local Save. Existing scalar-only Creature drafts remain
+compatible within their earlier bounded profile.
+
+Verification passes `513/513` backend unit suites with `8,453/8,453`
+assertions, `90/90` Area Update integration assertions, `589/589` frontend
+unit files with `6,029/6,029` assertions, `49/49` regression-smoke files with
+`140/140` assertions, and both production builds. The integration proof
+reparses the published GFF and verifies the requested lists and exact order
+while GIC/IFO remain byte-identical.
+
+This closes the bounded Creature inline-ASCII list editor, not the entire Area
+program. Creature TLK-backed text, codepage-aware non-ASCII authoring, new
+unresolved-language rows, guarded browser Save/reopen, exact-candidate
+Toolset Save/Build/reopen and targeted NWN presentation, arbitrary Creature
+construction and spell graphs, the uncaptured 99-tileset Add/Render and
+adjacency matrix, independent PathConnect/WOK proof, remaining catalog
+blockers, and final release certification remain open. No Docker command,
+container, service, watcher, browser/Chrome, capture, Toolset/NWN process,
+mutation test, sub-agent, xoreos source, or other GPL source was used.
+
+## Existing retained Creature confirmed class spell-list clear checkpoint — 2026-09-13
+
+Checkpoint `253` and capability revision `2026-09-13.185` implement a bounded
+destructive clear for canonical `KnownList0..13` and
+`MemorizedList0..13` members on explicitly selected unchanged retained
+Creature class slots. Primary Aurora reader, dialog-commit, spell-model reset,
+and reciprocal writer decompilation prove the complete-list storage result.
+The additive contract uses one to eight strictly increasing source indices in
+the zero-based range `0..7`, exact whole-`ClassList` provenance, an unchanged
+class-ID/level roster, source ownership of at least one spell-list member per
+slot, and explicit destructive confirmation. It does not infer spell legality
+or admit class, level, slot-count, or arbitrary individual-spell mutation.
+
+The backend validates and projects the request, replans against the immutable
+Creature ordinal, deletes only canonical spell-list fields, preserves opaque
+siblings and all unrelated resources, and verifies candidate plus persisted
+readback inside revision-fenced atomic publication. The frontend derives exact
+slot ownership from retained provenance, keeps draft/history copies detached,
+shows explicit `ACTIVE_NOW`/`PRESERVE_ONLY` state and confirmation, filters
+only the staged selected-slot view, and carries the request through Apply,
+reopen, OK, and local Save. The existing bounded diagnostic receipt reports
+`ClassList.SpellLists(clear)` and changed-field count without spell content or
+high-cardinality source data.
+
+Verification passes `514/514` backend unit suites with `8,477/8,477`
+assertions, `91/91` Area Update integration assertions, `591/591` frontend
+unit files with `6,050/6,050` assertions, `49/49` regression-smoke files with
+`141/141` assertions, `14/14` capability-catalog assertions, and both
+production builds. The catalog remains honest at 81 rows: 52 implemented, 25
+partial, and 4 not started; Creature authoring remains `partial`/`blocked`.
+
+This is not full Area completion. Arbitrary known/memorized spell authoring,
+fresh guarded browser Save/reopen, exact-candidate Toolset Save/Build/reopen,
+targeted NWN behavior, the `0/3380` 99-tileset Add/Render and adjacency matrix,
+independent PathConnect/WOK proof, remaining catalog blockers, and final
+release certification remain open. No Docker command, container, service,
+watcher, browser/Chrome, capture, Toolset/NWN process, mutation test,
+sub-agent, xoreos source, or other GPL source was used.
+
+## Existing retained Creature exact class spell-entry removal checkpoint — 2026-09-13
+
+Checkpoint `254` and capability revision `2026-09-13.186` implement bounded
+destructive removal of exact existing spell structs from canonical
+`KnownList0..13` and `MemorizedList0..13` fields on an unchanged retained
+Creature class roster. Primary Aurora reader, Toolset dialog-commit, runtime
+spell-container rebuild, and reciprocal writer decompilation prove that an
+ordered source selection with omitted entries serializes the exact survivor
+subset. The contract publishes the complete canonical graph only when it
+contains at most 256 spell structs and accepts one to 256 strictly ordered,
+unique physical paths with explicit destructive confirmation. It does not
+infer eligibility, progression, memorization capacity, metamagic legality, or
+any new spell value.
+
+The backend validates, projects, replans, filters, writes, and reparses the
+mutation against immutable whole-`ClassList` provenance. It preserves every
+surviving struct and opaque sibling, removes a numbered list field only when
+its final entry is selected, verifies candidate and persisted readback, and
+publishes through the existing revision-fenced atomic transaction. The
+frontend validates and deep-clones exact source detail, exposes explicit
+confirm/remove/undo controls, blocks composition with class and complete-list
+mutations, removes only the matching display record, and round-trips the
+request through Apply, reopen, OK, and local Save.
+
+Verification passes `515/515` backend unit suites with `8,494/8,494`
+assertions, `92/92` Area Update integration assertions, `592/592` frontend
+unit files with `6,062/6,062` assertions, `49/49` regression-smoke files with
+`142/142` assertions, `14/14` capability-catalog assertions, and both
+production builds. One first broad backend run observed an unrelated five-
+second timeout in `main.bootstrap.spec.ts`; the isolated test passed `1/1`,
+and the complete bounded rerun then passed `8,494/8,494`. The 81-row catalog
+remains 52 implemented, 25 partial, and 4 not started; Creature authoring
+remains honestly `partial`/`blocked`.
+
+This is not full Area completion. Arbitrary known/memorized spell addition,
+replacement, reorder, and value mutation; fresh guarded browser readback;
+exact-candidate Toolset Save/Build/reopen; targeted NWN behavior; the `0/3380`
+99-tileset Add/Render and adjacency matrix; independent PathConnect/WOK proof;
+remaining catalog blockers; and final release certification remain open. No
+Docker command, container, service, watcher, browser/Chrome, capture,
+Toolset/NWN process, mutation test, sub-agent, xoreos source, or other GPL
+source was used.
+
+## Existing retained Creature exact class spell-entry reorder checkpoint — 2026-09-14
+
+Checkpoint `255` and capability revision `2026-09-13.187` implement exact
+same-list reordering of existing spell structs in canonical `KnownList0..13`
+and `MemorizedList0..13` fields on an unchanged retained Creature class roster.
+Primary Aurora reader, Toolset dialog-commit, runtime spell-container rebuild,
+and reciprocal writer decompilation prove that physical source order is read,
+rebuilt, and serialized in container-index order. The bounded contract accepts
+one to 224 unique canonical list records carrying at most 256 indices. Each
+record is a complete non-identity permutation of one source list, requires
+explicit confirmation, and cannot add, remove, duplicate, replace, mutate, or
+move a spell across lists.
+
+The backend strictly parses, projects, replans, permutes exact source structs,
+and verifies candidate plus persisted readback before revision-fenced atomic
+ARE/GIT/GIC/IFO publication. Every entry field and opaque sibling remains
+unchanged. The frontend validates and deep-clones the complete source graph,
+shows `ACTIVE_NOW`/`PRESERVE_ONLY` state plus confirmation and list-local Move
+Up/Move Down controls, removes identity no-ops, applies the display order, and
+round-trips the request through Apply, reopen, OK, and local Save. Clear,
+removal, reorder, class identity/level, and slot resize remain mutually
+exclusive.
+
+Verification passes `516/516` backend unit suites with `8,522/8,522`
+assertions, `93/93` Area Update integration assertions, `10/10` backend e2e
+suites with `113/113` assertions, `593/593` frontend unit files with
+`6,080/6,080` assertions, `49/49` regression-smoke files with `143/143`
+assertions, `14/14` capability-catalog assertions, and both production builds.
+One first frontend regression run observed an unrelated topbar timing failure;
+its isolated rerun and the complete `143/143` rerun passed. The backend golden
+test configurations were also made single-process and switched to the existing
+isolated TypeScript transform after the former worker-based setup exceeded its
+fixed 1 GB heap before test execution.
+
+This is not full Area completion. Arbitrary known/memorized spell addition,
+replacement, cross-list movement, and value mutation; fresh guarded browser
+readback; exact-candidate Toolset Save/Build/reopen; targeted NWN behavior; the
+`0/3380` 99-tileset Add/Render and adjacency matrix; independent
+PathConnect/WOK proof; remaining catalog blockers; and final release
+certification remain open. No Docker command, container startup, service,
+watcher, browser/Chrome, capture, Toolset/NWN process, mutation test,
+sub-agent, xoreos source, or other GPL source was used.

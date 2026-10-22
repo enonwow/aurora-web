@@ -6,6 +6,7 @@ import type {
   ScenePlaceablePortraitCatalog,
   ScenePlaceableTrapTypeCatalog,
 } from "../../contracts";
+import type { SceneObjectEditableLocalizedStringEntry } from "../../../scene/contracts";
 import {
   SharedAdvancedSettingsSection,
   SharedDialogActionsFooter,
@@ -82,11 +83,17 @@ import { MAX_PLACEABLE_TAG_CODE_UNITS } from "../../../scene/domain/placeableTag
 import { canEditExistingPlaceableLocalizedString } from "../../application/placeableLocalizedStringProvenance";
 import {
   MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES,
-  MAX_PLACEABLE_LOC_NAME_ASCII_BYTES
+  MAX_PLACEABLE_LOC_NAME_ASCII_BYTES,
+  MAX_PLACEABLE_LOCALIZED_STRING_ENTRY_BYTES,
+  MAX_PLACEABLE_LOCALIZED_STRING_ENTRIES,
+  MAX_PLACEABLE_LOCALIZED_STRING_TOTAL_TEXT_BYTES,
+  isPlaceableInlineAsciiText,
 } from "../../../scene/domain/placeableLocalizedStrings";
+import { LocalizedStringEntryEditor } from "./LocalizedStringEntryEditor";
 
 type PlaceablePropertiesEditableField =
   | "name"
+  | "localizedNameEntries"
   | "tag"
   | "resRef"
   | "appearanceType"
@@ -102,6 +109,7 @@ type PlaceablePropertiesEditableField =
   | "reflexSave"
   | "willSave"
   | "description"
+  | "descriptionEntries"
   | "comments";
 
 interface PlaceablePropertiesDialogProps {
@@ -120,7 +128,11 @@ interface PlaceablePropertiesDialogProps {
   setPlaceablePropertiesActiveTab: (nextTab: PlaceablePropertiesTab) => void;
   updatePlaceablePropertiesDraftField: (
     field: PlaceablePropertiesEditableField,
-    value: string | boolean | number
+    value:
+      | string
+      | boolean
+      | number
+      | readonly SceneObjectEditableLocalizedStringEntry[]
   ) => void;
   updatePlaceableScriptSlotDraftField: (field: PlaceableScriptSlotKey, value: string) => void;
   updatePlaceableDisabledFlagDraftField: (
@@ -159,6 +171,32 @@ interface PlaceablePropertiesDialogProps {
   movePlaceablePropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
   endPlaceablePropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
   cancelPlaceablePropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
+}
+
+function PlaceableLocalizedEntryEditor({
+  label,
+  entries,
+  defaultTextMaxLength,
+  onChange,
+}: Readonly<{
+  label: "Name" | "Description";
+  entries: readonly SceneObjectEditableLocalizedStringEntry[] | undefined;
+  defaultTextMaxLength: number;
+  onChange: (entries: readonly SceneObjectEditableLocalizedStringEntry[]) => void;
+}>) {
+  return (
+    <LocalizedStringEntryEditor
+      objectLabel="Placeable"
+      fieldLabel={label}
+      entries={entries}
+      defaultTextMaxLength={defaultTextMaxLength}
+      entryTextMaxLength={MAX_PLACEABLE_LOCALIZED_STRING_ENTRY_BYTES}
+      maxEntries={MAX_PLACEABLE_LOCALIZED_STRING_ENTRIES}
+      maxTotalTextLength={MAX_PLACEABLE_LOCALIZED_STRING_TOTAL_TEXT_BYTES}
+      isInlineText={isPlaceableInlineAsciiText}
+      onChange={onChange}
+    />
+  );
 }
 
 function formatObjectNumber(value: number, fractionDigits: number): string {
@@ -652,6 +690,17 @@ export function PlaceablePropertiesDialog({
                         </button>
                       </div>
                     </label>
+                    {canEditLocalizedName ? (
+                      <PlaceableLocalizedEntryEditor
+                        label="Name"
+                        entries={placeablePropertiesDialog.draft.localizedNameEntries}
+                        defaultTextMaxLength={MAX_PLACEABLE_LOC_NAME_ASCII_BYTES}
+                        onChange={(entries) => updatePlaceablePropertiesDraftField(
+                          "localizedNameEntries",
+                          entries,
+                        )}
+                      />
+                    ) : null}
                     <label className="canvas-placeable-properties-field-row">
                       <span>Tag</span>
                       <div className="canvas-placeable-properties-field-control">
@@ -1316,17 +1365,30 @@ export function PlaceablePropertiesDialog({
               ) : null}
 
               {placeablePropertiesDialog.activeTab === "description" ? (
-                <SharedLongTextPropertySection
-                  sectionClassName="canvas-placeable-properties-group"
-                  labelClassName="canvas-placeable-properties-fulltext"
-                  label="Description"
-                  value={placeablePropertiesDialog.draft.description}
-                  disabled={!canEditDescription}
-                  maxLength={MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES}
-                  onChange={(nextValue) =>
-                    updatePlaceablePropertiesDraftField("description", nextValue)
-                  }
-                />
+                <>
+                  <SharedLongTextPropertySection
+                    sectionClassName="canvas-placeable-properties-group"
+                    labelClassName="canvas-placeable-properties-fulltext"
+                    label="Description"
+                    value={placeablePropertiesDialog.draft.description}
+                    disabled={!canEditDescription}
+                    maxLength={MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES}
+                    onChange={(nextValue) =>
+                      updatePlaceablePropertiesDraftField("description", nextValue)
+                    }
+                  />
+                  {canEditDescription ? (
+                    <PlaceableLocalizedEntryEditor
+                      label="Description"
+                      entries={placeablePropertiesDialog.draft.descriptionEntries}
+                      defaultTextMaxLength={MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES}
+                      onChange={(entries) => updatePlaceablePropertiesDraftField(
+                        "descriptionEntries",
+                        entries,
+                      )}
+                    />
+                  ) : null}
+                </>
               ) : null}
 
               {placeablePropertiesDialog.activeTab === "comments" ? (

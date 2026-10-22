@@ -187,6 +187,22 @@ import {
   type ExistingAreaCreatureClassSlotResizeMutation,
 } from "./area-creature-class-slot-resize";
 import {
+  readExistingAreaCreatureClassSpellClearMutation,
+  type ExistingAreaCreatureClassSpellClearMutation,
+} from "./area-creature-class-spell-clear";
+import {
+  readExistingAreaCreatureClassSpellRemovalMutation,
+  type ExistingAreaCreatureClassSpellRemovalMutation,
+} from "./area-creature-class-spell-removal";
+import {
+  readExistingAreaCreatureClassSpellReorderMutation,
+  type ExistingAreaCreatureClassSpellReorderMutation,
+} from "./area-creature-class-spell-reorder";
+import {
+  readExistingAreaCreatureClassSpellReplacementMutation,
+  type ExistingAreaCreatureClassSpellReplacementMutation,
+} from "./area-creature-class-spell-replacement";
+import {
   readAreaCreaturePhenotypeStorage,
   readExistingAreaCreaturePhenotypeMutation,
   type ExistingAreaCreaturePhenotypeMutation,
@@ -257,7 +273,10 @@ import {
 import { readAreaCreatureNameLocalizedStrings } from "./area-creature-localized-strings";
 import {
   AREA_CREATURE_NAME_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaCreatureLocalizedStringEntriesEqual,
   isAreaCreatureNameInlineAsciiText,
+  readEditableAreaCreatureLocalizedStringEntries,
+  readEditableAreaCreatureLocalizedStringStorage,
   readAreaCreatureNameInlineAsciiStorage,
   readExistingAreaCreatureNameLocalizedStringMutations,
   type ExistingAreaCreatureNameLocalizedStringMutation,
@@ -414,6 +433,24 @@ import {
   type ExistingAreaTriggerTransitionStorageMutation,
 } from "./area-trigger-transition-storage";
 import {
+  areaTriggerCorePropertiesEqual,
+  isAreaTriggerCoreProperties,
+  readExistingAreaTriggerCorePropertiesMutation,
+  type ExistingAreaTriggerCorePropertiesMutation,
+} from "./area-trigger-core-properties";
+import {
+  areaTriggerTrapPropertiesEqual,
+  isAreaTriggerTrapProperties,
+  readExistingAreaTriggerTrapPropertiesMutation,
+  type ExistingAreaTriggerTrapPropertiesMutation,
+} from "./area-trigger-trap-properties";
+import {
+  areaTriggerVariableEntriesEqual,
+  parseAreaTriggerVariableProvenance,
+  parseAreaTriggerVariableTargetEntries,
+  type ExistingAreaTriggerVariableMutation,
+} from "./area-trigger-variable-table";
+import {
   isEditableAreaEncounterTag,
   readExistingAreaEncounterTagMutation,
   readExistingAreaEncounterTagStorage,
@@ -547,7 +584,10 @@ import {
 import { readAreaItemLocalizedStrings } from "./area-item-localized-strings";
 import {
   AREA_ITEM_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaItemLocalizedStringEntriesEqual,
   isAreaItemInlineAsciiText,
+  readEditableAreaItemLocalizedStringEntries,
+  readEditableAreaItemLocalizedStringStorage,
   readAreaItemInlineAsciiStorage,
   readExistingAreaItemLocalizedStringMutations,
   type ExistingAreaItemLocalizedStringMutation,
@@ -644,7 +684,10 @@ import {
 } from "./area-placeable-tag";
 import {
   AREA_PLACEABLE_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaPlaceableLocalizedStringEntriesEqual,
   isAreaPlaceableInlineAsciiText,
+  readEditableAreaPlaceableLocalizedStringEntries,
+  readEditableAreaPlaceableLocalizedStringStorage,
   readAreaPlaceableInlineAsciiStorage,
   readExistingAreaPlaceableLocalizedStringMutations,
   type ExistingAreaPlaceableLocalizedStringMutation,
@@ -890,6 +933,10 @@ export interface ProjectedExistingAreaCreaturePropertyMutation {
   readonly classLevels?: ExistingAreaCreatureClassLevelMutation;
   readonly classIdentity?: ExistingAreaCreatureClassIdentityMutation;
   readonly classSlotResize?: ExistingAreaCreatureClassSlotResizeMutation;
+  readonly classSpellClear?: ExistingAreaCreatureClassSpellClearMutation;
+  readonly classSpellRemoval?: ExistingAreaCreatureClassSpellRemovalMutation;
+  readonly classSpellReorder?: ExistingAreaCreatureClassSpellReorderMutation;
+  readonly classSpellReplacement?: ExistingAreaCreatureClassSpellReplacementMutation;
   readonly phenotype?: ExistingAreaCreaturePhenotypeMutation;
   readonly portrait?: ExistingAreaCreaturePortraitMutation;
   readonly challengeRating?: ExistingAreaCreatureChallengeRatingMutation;
@@ -948,6 +995,9 @@ export interface ProjectedExistingAreaTriggerPropertyMutation {
   readonly editorComment?: ExistingAreaTriggerEditorCommentMutation;
   readonly scripts?: ExistingAreaTriggerScriptResRefsMutation;
   readonly transitionStorage?: ExistingAreaTriggerTransitionStorageMutation;
+  readonly coreProperties?: ExistingAreaTriggerCorePropertiesMutation;
+  readonly trapProperties?: ExistingAreaTriggerTrapPropertiesMutation;
+  readonly variables?: ExistingAreaTriggerVariableMutation;
 }
 
 export interface ProjectedExistingAreaWaypointPropertyMutation {
@@ -3287,6 +3337,30 @@ function projectExistingObjectPropertyMutation(
     value,
     "triggerTransitionStorage",
   );
+  const hasTriggerCoreProperties = Object.prototype.hasOwnProperty.call(
+    source,
+    "triggerCoreProperties",
+  );
+  const hasTriggerCorePropertiesTarget = Object.prototype.hasOwnProperty.call(
+    value,
+    "triggerCoreProperties",
+  );
+  const hasTriggerTrapProperties = Object.prototype.hasOwnProperty.call(
+    source,
+    "triggerTrapProperties",
+  );
+  const hasTriggerTrapPropertiesTarget = Object.prototype.hasOwnProperty.call(
+    value,
+    "triggerTrapProperties",
+  );
+  const hasTriggerVariables = Object.prototype.hasOwnProperty.call(
+    source,
+    "triggerVariables",
+  );
+  const hasTriggerVariablesTarget = Object.prototype.hasOwnProperty.call(
+    value,
+    "triggerVariables",
+  );
   if (hasTriggerTemplateResRefTarget && !hasTriggerTemplateResRef) {
     fail(
       "Trigger TemplateResRef target requires exact retained storage provenance.",
@@ -3317,14 +3391,39 @@ function projectExistingObjectPropertyMutation(
       `${path}.source.triggerTransitionStorage`,
     );
   }
+  if (hasTriggerCorePropertiesTarget && !hasTriggerCoreProperties) {
+    fail(
+      "A Trigger core-properties target requires immutable exact storage provenance.",
+      `${path}.source.triggerCoreProperties`,
+    );
+  }
+  if (hasTriggerTrapPropertiesTarget && !hasTriggerTrapProperties) {
+    fail(
+      "A Trigger trap-properties target requires immutable exact storage provenance.",
+      `${path}.source.triggerTrapProperties`,
+    );
+  }
+  if (hasTriggerVariablesTarget && !hasTriggerVariables) {
+    fail(
+      "A Trigger VarTable target requires immutable exact storage provenance.",
+      `${path}.source.triggerVariables`,
+    );
+  }
   if (
     hasTriggerTag || hasTriggerTemplateResRef || hasTriggerLocalizedName ||
-    hasTriggerEditorComment || hasTriggerScriptResRefs || hasTriggerTransitionStorage
+    hasTriggerEditorComment || hasTriggerScriptResRefs || hasTriggerTransitionStorage ||
+    hasTriggerCoreProperties || hasTriggerTrapProperties || hasTriggerVariables
   ) {
     if (retained.sourceKind !== "trigger") {
       fail(
         "Only Triggers may carry retained Trigger property provenance.",
-        `${path}.source.${hasTriggerTransitionStorage
+        `${path}.source.${hasTriggerVariables
+          ? "triggerVariables"
+          : hasTriggerTrapProperties
+          ? "triggerTrapProperties"
+          : hasTriggerCoreProperties
+          ? "triggerCoreProperties"
+          : hasTriggerTransitionStorage
           ? "triggerTransitionStorage"
           : hasTriggerScriptResRefs
           ? "triggerScriptResRefsStorage"
@@ -3385,9 +3484,33 @@ function projectExistingObjectPropertyMutation(
           `${path}.triggerTransitionStorage`,
         )
       : undefined;
+    const coreProperties = hasTriggerCoreProperties
+      ? projectTriggerCorePropertiesMutation(
+          source.triggerCoreProperties,
+          hasTriggerCorePropertiesTarget ? value.triggerCoreProperties : undefined,
+          `${path}.source.triggerCoreProperties`,
+          `${path}.triggerCoreProperties`,
+        )
+      : undefined;
+    const trapProperties = hasTriggerTrapProperties
+      ? projectTriggerTrapPropertiesMutation(
+          source.triggerTrapProperties,
+          hasTriggerTrapPropertiesTarget ? value.triggerTrapProperties : undefined,
+          `${path}.source.triggerTrapProperties`,
+          `${path}.triggerTrapProperties`,
+        )
+      : undefined;
+    const variables = hasTriggerVariables
+      ? projectTriggerVariableMutation(
+          source.triggerVariables,
+          hasTriggerVariablesTarget ? value.triggerVariables : undefined,
+          `${path}.source.triggerVariables`,
+          `${path}.triggerVariables`,
+        )
+      : undefined;
     if (
       !tag && !templateResRef && !localizedName && !editorComment && !scripts
-      && !transitionStorage
+      && !transitionStorage && !coreProperties && !trapProperties && !variables
     ) {
       return undefined;
     }
@@ -3407,6 +3530,9 @@ function projectExistingObjectPropertyMutation(
       ...(editorComment ? { editorComment } : {}),
       ...(scripts ? { scripts } : {}),
       ...(transitionStorage ? { transitionStorage } : {}),
+      ...(coreProperties ? { coreProperties } : {}),
+      ...(trapProperties ? { trapProperties } : {}),
+      ...(variables ? { variables } : {}),
     });
   }
   const hasEncounterTag = Object.prototype.hasOwnProperty.call(source, "encounterTag");
@@ -4358,6 +4484,38 @@ function projectExistingObjectPropertyMutation(
           `${path}.creatureProperties.advancedSettings.soundSetFile`,
         )
       : undefined;
+    const creatureClassSpellClear = hasCreatureClassIdentityState
+      ? projectCreatureClassSpellClearMutation(
+          source.creatureClassIdentityState,
+          value.creatureProperties,
+          `${path}.source.creatureClassIdentityState`,
+          `${path}.creatureProperties`,
+        )
+      : undefined;
+    const creatureClassSpellRemoval = hasCreatureClassIdentityState
+      ? projectCreatureClassSpellRemovalMutation(
+          source.creatureClassIdentityState,
+          value.creatureProperties,
+          `${path}.source.creatureClassIdentityState`,
+          `${path}.creatureProperties`,
+        )
+      : undefined;
+    const creatureClassSpellReorder = hasCreatureClassIdentityState
+      ? projectCreatureClassSpellReorderMutation(
+          source.creatureClassIdentityState,
+          value.creatureProperties,
+          `${path}.source.creatureClassIdentityState`,
+          `${path}.creatureProperties`,
+        )
+      : undefined;
+    const creatureClassSpellReplacement = hasCreatureClassIdentityState
+      ? projectCreatureClassSpellReplacementMutation(
+          source.creatureClassIdentityState,
+          value.creatureProperties,
+          `${path}.source.creatureClassIdentityState`,
+          `${path}.creatureProperties`,
+        )
+      : undefined;
     const creatureClassSlotResize = hasCreatureClassIdentityState
       ? projectCreatureClassSlotResizeMutation(
           source.creatureClassIdentityState,
@@ -4368,7 +4526,9 @@ function projectExistingObjectPropertyMutation(
           `${path}.creatureProperties.classEntries`,
         )
       : undefined;
-    const creatureClassIdentity = hasCreatureClassIdentityState && !creatureClassSlotResize
+    const creatureClassIdentity = hasCreatureClassIdentityState && !creatureClassSlotResize &&
+      !creatureClassSpellClear && !creatureClassSpellRemoval && !creatureClassSpellReorder &&
+      !creatureClassSpellReplacement
       ? projectCreatureClassIdentityMutation(
           source.creatureClassIdentityState,
           source.creatureStartingPackage,
@@ -4660,6 +4820,10 @@ function projectExistingObjectPropertyMutation(
       !creatureClassLevels &&
       !creatureClassIdentity &&
       !creatureClassSlotResize &&
+      !creatureClassSpellClear &&
+      !creatureClassSpellRemoval &&
+      !creatureClassSpellReorder &&
+      !creatureClassSpellReplacement &&
       !creaturePhenotype &&
       !creaturePortrait &&
       !creatureChallengeRating &&
@@ -4687,7 +4851,7 @@ function projectExistingObjectPropertyMutation(
         `${path}.source.sourceIndex`,
       );
     }
-    return creatureTag || creatureConversation || creatureInterruptable || creatureAdvancedFlags || creatureBodyBag || creatureDecayTime || creatureAppearance || creatureGender || creaturePerceptionRange || creatureWalkRate || creatureSoundSetFile || creatureStartingPackage || creatureSkillList || creatureFeatList || creatureSpecialAbilityList || creatureVariables || creatureEditorComment || creatureClassLevels || creatureClassIdentity || creatureClassSlotResize || creaturePhenotype || creaturePortrait || creatureChallengeRating || creatureAbilityScores || creatureAppearanceColors || creatureBodyParts || creatureAppendages || creatureHitPoints || creatureNaturalArmorClass || creatureSavingThrowBonuses || creatureAlignment || creatureFaction || creatureTemplateResRef || creatureSpecialIdentityStrings || creatureScripts || localizedStrings || inventory || equipment
+    return creatureTag || creatureConversation || creatureInterruptable || creatureAdvancedFlags || creatureBodyBag || creatureDecayTime || creatureAppearance || creatureGender || creaturePerceptionRange || creatureWalkRate || creatureSoundSetFile || creatureStartingPackage || creatureSkillList || creatureFeatList || creatureSpecialAbilityList || creatureVariables || creatureEditorComment || creatureClassLevels || creatureClassIdentity || creatureClassSlotResize || creatureClassSpellClear || creatureClassSpellRemoval || creatureClassSpellReorder || creatureClassSpellReplacement || creaturePhenotype || creaturePortrait || creatureChallengeRating || creatureAbilityScores || creatureAppearanceColors || creatureBodyParts || creatureAppendages || creatureHitPoints || creatureNaturalArmorClass || creatureSavingThrowBonuses || creatureAlignment || creatureFaction || creatureTemplateResRef || creatureSpecialIdentityStrings || creatureScripts || localizedStrings || inventory || equipment
       ? Object.freeze({
           kind: "creature",
           sourceObjectId: retained.sourceObjectId,
@@ -4714,6 +4878,16 @@ function projectExistingObjectPropertyMutation(
           ...(creatureClassLevels ? { classLevels: creatureClassLevels } : {}),
           ...(creatureClassIdentity ? { classIdentity: creatureClassIdentity } : {}),
           ...(creatureClassSlotResize ? { classSlotResize: creatureClassSlotResize } : {}),
+          ...(creatureClassSpellClear ? { classSpellClear: creatureClassSpellClear } : {}),
+          ...(creatureClassSpellRemoval
+            ? { classSpellRemoval: creatureClassSpellRemoval }
+            : {}),
+          ...(creatureClassSpellReorder
+            ? { classSpellReorder: creatureClassSpellReorder }
+            : {}),
+          ...(creatureClassSpellReplacement
+            ? { classSpellReplacement: creatureClassSpellReplacement }
+            : {}),
           ...(creaturePhenotype ? { phenotype: creaturePhenotype } : {}),
           ...(creaturePortrait ? { portrait: creaturePortrait } : {}),
           ...(creatureChallengeRating
@@ -4789,7 +4963,9 @@ function projectExistingObjectPropertyMutation(
     !Array.isArray(rawProperties) &&
     (
       Object.prototype.hasOwnProperty.call(rawProperties, "localizedName") ||
-      Object.prototype.hasOwnProperty.call(rawProperties, "description")
+      Object.prototype.hasOwnProperty.call(rawProperties, "description") ||
+      Object.prototype.hasOwnProperty.call(rawProperties, "localizedNameEntries") ||
+      Object.prototype.hasOwnProperty.call(rawProperties, "descriptionEntries")
     );
   if (
     !hasOnUsed &&
@@ -5211,7 +5387,63 @@ function projectCreatureNameLocalizedStringMutations(
   const target = record(targetInput, targetPath);
   const pairs: ExistingAreaCreatureNameLocalizedStringMutation[] = [];
   for (const mapping of AREA_CREATURE_NAME_LOCALIZED_STRING_MUTATION_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(target, mapping.targetKey)) continue;
+    const targetEntriesKey = `${mapping.targetKey}Entries`;
+    const hasTargetValue = Object.prototype.hasOwnProperty.call(target, mapping.targetKey);
+    const hasTargetEntries = Object.prototype.hasOwnProperty.call(target, targetEntriesKey);
+    if (!hasTargetValue && !hasTargetEntries) continue;
+    if (hasTargetEntries) {
+      if (!hasTargetValue) {
+        fail(
+          `A complete ${mapping.field} entry target requires its scalar default target.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      const sourceStorage = readEditableAreaCreatureLocalizedStringStorage(
+        source[mapping.sourceKey],
+        mapping.maxBytes,
+      );
+      if (!sourceStorage) {
+        fail(
+          `Expected one complete ordered inline-ASCII ${mapping.field} source value.`,
+          `${sourcePath}.${mapping.sourceKey}`,
+        );
+      }
+      const valueEntries = readEditableAreaCreatureLocalizedStringEntries(
+        target[targetEntriesKey],
+        mapping.maxBytes,
+      );
+      if (!valueEntries) {
+        fail(
+          `Expected one complete ordered inline-ASCII ${mapping.field} target list.`,
+          `${targetPath}.${targetEntriesKey}`,
+        );
+      }
+      const value = target[mapping.targetKey];
+      if (!isAreaCreatureNameInlineAsciiText(value, mapping.maxBytes)) {
+        fail(
+          `Expected printable ASCII ${mapping.field} text within ${mapping.maxBytes} bytes.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      const targetDefault = valueEntries.find((entry) => entry.languageId === 0)?.text ?? "";
+      if (targetDefault !== value) {
+        fail(
+          `${mapping.field} scalar target must equal entry identifier 0 or the empty-list value.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      if (!areaCreatureLocalizedStringEntriesEqual(sourceStorage.entries, valueEntries)) {
+        pairs.push({
+          field: mapping.field,
+          expectedValue: sourceStorage.value,
+          value,
+          expectedProfile: sourceStorage.profile,
+          expectedEntries: sourceStorage.entries,
+          valueEntries,
+        });
+      }
+      continue;
+    }
     const expectedValue = readAreaCreatureNameInlineAsciiStorage(
       source[mapping.sourceKey],
       mapping.maxBytes,
@@ -5551,6 +5783,31 @@ function projectWaypointVariableMutation(
   });
 }
 
+function projectTriggerVariableMutation(
+  sourceInput: unknown,
+  targetInput: unknown,
+  sourcePath: string,
+  targetPath: string,
+): ExistingAreaTriggerVariableMutation | undefined {
+  let source;
+  let entries;
+  try {
+    source = parseAreaTriggerVariableProvenance(sourceInput);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "Trigger VarTable source is invalid.", sourcePath);
+  }
+  try {
+    entries = parseAreaTriggerVariableTargetEntries(targetInput);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "Trigger VarTable target is invalid.", targetPath);
+  }
+  if (areaTriggerVariableEntriesEqual(source.expectedEntries, entries)) return undefined;
+  return Object.freeze({
+    expectedEntries: source.expectedEntries,
+    entries,
+  });
+}
+
 function projectEncounterCreatureListMutation(
   sourceInput: unknown,
   targetInput: unknown,
@@ -5822,8 +6079,66 @@ function projectPlaceableLocalizedStringMutations(
   const target = record(targetInput, targetPath);
   const pairs: ExistingAreaPlaceableLocalizedStringMutation[] = [];
   for (const mapping of AREA_PLACEABLE_LOCALIZED_STRING_MUTATION_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(target, mapping.targetKey)) continue;
+    const targetEntriesKey = mapping.field === "LocName"
+      ? "localizedNameEntries"
+      : "descriptionEntries";
+    const hasTargetValue = Object.prototype.hasOwnProperty.call(target, mapping.targetKey);
+    const hasTargetEntries = Object.prototype.hasOwnProperty.call(target, targetEntriesKey);
+    if (!hasTargetValue && !hasTargetEntries) continue;
     const memberPath = `${sourcePath}.${mapping.sourceKey}`;
+    if (hasTargetEntries) {
+      if (!hasTargetValue) {
+        fail(
+          `A complete ${mapping.field} entry target requires its scalar default target.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      const sourceStorage = readEditableAreaPlaceableLocalizedStringStorage(
+        source[mapping.sourceKey],
+        mapping.maxBytes,
+      );
+      if (!sourceStorage) {
+        fail(
+          `Expected one complete ordered inline-ASCII ${mapping.field} source value.`,
+          memberPath,
+        );
+      }
+      const valueEntries = readEditableAreaPlaceableLocalizedStringEntries(
+        target[targetEntriesKey],
+        mapping.maxBytes,
+      );
+      if (!valueEntries) {
+        fail(
+          `Expected one complete ordered inline-ASCII ${mapping.field} target list.`,
+          `${targetPath}.${targetEntriesKey}`,
+        );
+      }
+      const value = target[mapping.targetKey];
+      if (!isAreaPlaceableInlineAsciiText(value, mapping.maxBytes)) {
+        fail(
+          `Expected printable ASCII ${mapping.field} text within ${mapping.maxBytes} bytes.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      const targetDefault = valueEntries.find((entry) => entry.languageId === 0)?.text ?? "";
+      if (targetDefault !== value) {
+        fail(
+          `${mapping.field} scalar target must equal entry identifier 0 or the empty-list value.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      if (!areaPlaceableLocalizedStringEntriesEqual(sourceStorage.entries, valueEntries)) {
+        pairs.push({
+          field: mapping.field,
+          expectedValue: sourceStorage.value,
+          value,
+          expectedProfile: sourceStorage.profile,
+          expectedEntries: sourceStorage.entries,
+          valueEntries,
+        });
+      }
+      continue;
+    }
     const expectedValue = readAreaPlaceableInlineAsciiStorage(
       source[mapping.sourceKey],
       mapping.maxBytes,
@@ -6471,6 +6786,357 @@ function projectCreatureClassSlotResizeMutation(
     packagesRowCount: startingPackage.table.rowCount,
   });
   if (!mutation) fail("Creature class-slot resize is not an exact admitted tail transition.", targetPath);
+  return mutation;
+}
+
+function projectCreatureClassSpellClearMutation(
+  sourceInput: unknown,
+  creaturePropertiesInput: unknown,
+  sourcePath: string,
+  targetPath: string,
+): ExistingAreaCreatureClassSpellClearMutation | undefined {
+  const source = readAreaCreatureClassIdentityState(sourceInput);
+  if (!source) fail("Expected exact Creature ClassList graph provenance.", sourcePath);
+  if (!source.present || creaturePropertiesInput === undefined) return undefined;
+  const creatureProperties = record(creaturePropertiesInput, targetPath);
+  const hasIndices = Object.prototype.hasOwnProperty.call(
+    creatureProperties,
+    "classSpellClearSlotIndices",
+  );
+  const hasConfirmation = Object.prototype.hasOwnProperty.call(
+    creatureProperties,
+    "classSpellClearConfirmed",
+  );
+  if (!hasIndices && !hasConfirmation) return undefined;
+  if (Array.isArray(creatureProperties.classSpellRemovalTargets) &&
+    creatureProperties.classSpellRemovalTargets.length > 0) {
+    fail(
+      "Creature class spell-list clear cannot be combined with spell-entry removal.",
+      `${targetPath}.classSpellClearSlotIndices`,
+    );
+  }
+  if (!Array.isArray(creatureProperties.classSpellClearSlotIndices)) {
+    fail(
+      "Creature class spell-list clear target must be an ordered slot-index array.",
+      `${targetPath}.classSpellClearSlotIndices`,
+    );
+  }
+  if (creatureProperties.classSpellClearSlotIndices.length === 0 &&
+    creatureProperties.classSpellClearConfirmed !== true) return undefined;
+  if (!Array.isArray(creatureProperties.classEntries) ||
+    creatureProperties.classEntries.length !== source.entries.length) {
+    fail(
+      "Creature spell-list clear must preserve the exact class and level roster.",
+      `${targetPath}.classEntries`,
+    );
+  }
+  for (const [index, entryInput] of creatureProperties.classEntries.entries()) {
+    const entry = record(entryInput, `${targetPath}.classEntries.${index}`);
+    if (entry.classId !== source.entries[index]!.classId ||
+      entry.level !== source.entries[index]!.level) {
+      fail(
+        "Creature spell-list clear must preserve the exact class and level roster.",
+        `${targetPath}.classEntries.${index}`,
+      );
+    }
+  }
+  const classSlotIndices = creatureProperties.classSpellClearSlotIndices.map(
+    (entry, index) => integer(
+      entry,
+      0,
+      source.entries.length - 1,
+      `${targetPath}.classSpellClearSlotIndices.${index}`,
+    ),
+  );
+  if (classSlotIndices.some((slotIndex, index) => index > 0 &&
+    slotIndex <= classSlotIndices[index - 1]!)) {
+    fail(
+      "Creature class spell-list clear slot indices must be unique and strictly increasing.",
+      `${targetPath}.classSpellClearSlotIndices`,
+    );
+  }
+  if (classSlotIndices.some((slotIndex) =>
+    source.entries[slotIndex]!.canonicalSpellListFieldCount === 0)) {
+    fail(
+      "Creature class spell-list clear must target a slot with canonical spell-list fields.",
+      `${targetPath}.classSpellClearSlotIndices`,
+    );
+  }
+  if (creatureProperties.classSpellClearConfirmed !== true) {
+    fail(
+      "Creature class spell-list clear requires explicit destructive confirmation.",
+      `${targetPath}.classSpellClearConfirmed`,
+    );
+  }
+  const mutation = readExistingAreaCreatureClassSpellClearMutation({
+    expectedClassIds: source.entries.map((entry) => entry.classId),
+    expectedLevels: source.entries.map((entry) => entry.level),
+    classListGraphSha256: source.classListGraphSha256,
+    classSlotIndices,
+    destructiveSpellClearConfirmed: true,
+  });
+  if (!mutation) fail("Creature class spell-list clear mutation is invalid.", targetPath);
+  return mutation;
+}
+
+function projectCreatureClassSpellRemovalMutation(
+  sourceInput: unknown,
+  creaturePropertiesInput: unknown,
+  sourcePath: string,
+  targetPath: string,
+): ExistingAreaCreatureClassSpellRemovalMutation | undefined {
+  const source = readAreaCreatureClassIdentityState(sourceInput);
+  if (!source) fail("Expected exact Creature ClassList graph provenance.", sourcePath);
+  if (!source.present || creaturePropertiesInput === undefined) return undefined;
+  const creatureProperties = record(creaturePropertiesInput, targetPath);
+  const hasTargets = Object.prototype.hasOwnProperty.call(
+    creatureProperties,
+    "classSpellRemovalTargets",
+  );
+  const hasConfirmation = Object.prototype.hasOwnProperty.call(
+    creatureProperties,
+    "classSpellRemovalConfirmed",
+  );
+  if (!hasTargets && !hasConfirmation) return undefined;
+  if (!Array.isArray(creatureProperties.classSpellRemovalTargets)) {
+    fail(
+      "Creature class spell-entry removal target must be an ordered target array.",
+      `${targetPath}.classSpellRemovalTargets`,
+    );
+  }
+  if (creatureProperties.classSpellRemovalTargets.length === 0 &&
+    creatureProperties.classSpellRemovalConfirmed !== true) return undefined;
+  if (Array.isArray(creatureProperties.classSpellClearSlotIndices) &&
+    creatureProperties.classSpellClearSlotIndices.length > 0) {
+    fail(
+      "Creature class spell-entry removal cannot be combined with a full list clear.",
+      `${targetPath}.classSpellRemovalTargets`,
+    );
+  }
+  if (!Array.isArray(creatureProperties.classEntries) ||
+    creatureProperties.classEntries.length !== source.entries.length ||
+    source.entries.some((entry) => !entry.spellLists)) {
+    fail(
+      "Creature spell-entry removal requires exact bounded source spell provenance.",
+      `${targetPath}.classEntries`,
+    );
+  }
+  for (const [index, entryInput] of creatureProperties.classEntries.entries()) {
+    const entry = record(entryInput, `${targetPath}.classEntries.${index}`);
+    if (entry.classId !== source.entries[index]!.classId ||
+      entry.level !== source.entries[index]!.level) {
+      fail(
+        "Creature spell-entry removal must preserve the exact class and level roster.",
+        `${targetPath}.classEntries.${index}`,
+      );
+    }
+  }
+  if (creatureProperties.classSpellRemovalConfirmed !== true) {
+    fail(
+      "Creature class spell-entry removal requires explicit destructive confirmation.",
+      `${targetPath}.classSpellRemovalConfirmed`,
+    );
+  }
+  const mutation = readExistingAreaCreatureClassSpellRemovalMutation({
+    expectedClassIds: source.entries.map((entry) => entry.classId),
+    expectedLevels: source.entries.map((entry) => entry.level),
+    classListGraphSha256: source.classListGraphSha256,
+    targets: creatureProperties.classSpellRemovalTargets,
+    destructiveSpellRemovalConfirmed: true,
+  });
+  if (!mutation) fail("Creature class spell-entry removal mutation is invalid.", targetPath);
+  for (const target of mutation.targets) {
+    const list = source.entries[target.classSlotIndex]!.spellLists!.find((candidate) =>
+      candidate.listKind === target.listKind && candidate.spellLevel === target.spellLevel);
+    if (!list || target.entryIndex >= list.entries.length) {
+      fail(
+        "Creature class spell-entry removal target is absent from exact source provenance.",
+        `${targetPath}.classSpellRemovalTargets`,
+      );
+    }
+  }
+  return mutation;
+}
+
+function projectCreatureClassSpellReorderMutation(
+  sourceInput: unknown,
+  creaturePropertiesInput: unknown,
+  sourcePath: string,
+  targetPath: string,
+): ExistingAreaCreatureClassSpellReorderMutation | undefined {
+  const source = readAreaCreatureClassIdentityState(sourceInput);
+  if (!source) fail("Expected exact Creature ClassList graph provenance.", sourcePath);
+  if (!source.present || creaturePropertiesInput === undefined) return undefined;
+  const creatureProperties = record(creaturePropertiesInput, targetPath);
+  const hasReorders = Object.prototype.hasOwnProperty.call(
+    creatureProperties,
+    "classSpellReorders",
+  );
+  const hasConfirmation = Object.prototype.hasOwnProperty.call(
+    creatureProperties,
+    "classSpellReorderConfirmed",
+  );
+  if (!hasReorders && !hasConfirmation) return undefined;
+  if (!Array.isArray(creatureProperties.classSpellReorders)) {
+    fail(
+      "Creature class spell-entry reorder target must be an ordered list array.",
+      `${targetPath}.classSpellReorders`,
+    );
+  }
+  if (creatureProperties.classSpellReorders.length === 0 &&
+    creatureProperties.classSpellReorderConfirmed !== true) return undefined;
+  if (Array.isArray(creatureProperties.classSpellRemovalTargets) &&
+    creatureProperties.classSpellRemovalTargets.length > 0) {
+    fail(
+      "Creature class spell-entry reorder cannot be combined with removal.",
+      `${targetPath}.classSpellReorders`,
+    );
+  }
+  if (Array.isArray(creatureProperties.classSpellClearSlotIndices) &&
+    creatureProperties.classSpellClearSlotIndices.length > 0) {
+    fail(
+      "Creature class spell-entry reorder cannot be combined with a full list clear.",
+      `${targetPath}.classSpellReorders`,
+    );
+  }
+  if (!Array.isArray(creatureProperties.classEntries) ||
+    creatureProperties.classEntries.length !== source.entries.length ||
+    source.entries.some((entry) => !entry.spellLists)) {
+    fail(
+      "Creature spell-entry reorder requires exact bounded source spell provenance.",
+      `${targetPath}.classEntries`,
+    );
+  }
+  for (const [index, entryInput] of creatureProperties.classEntries.entries()) {
+    const entry = record(entryInput, `${targetPath}.classEntries.${index}`);
+    if (entry.classId !== source.entries[index]!.classId ||
+      entry.level !== source.entries[index]!.level) {
+      fail(
+        "Creature spell-entry reorder must preserve the exact class and level roster.",
+        `${targetPath}.classEntries.${index}`,
+      );
+    }
+  }
+  if (creatureProperties.classSpellReorderConfirmed !== true) {
+    fail(
+      "Creature class spell-entry reorder requires explicit confirmation.",
+      `${targetPath}.classSpellReorderConfirmed`,
+    );
+  }
+  const mutation = readExistingAreaCreatureClassSpellReorderMutation({
+    expectedClassIds: source.entries.map((entry) => entry.classId),
+    expectedLevels: source.entries.map((entry) => entry.level),
+    classListGraphSha256: source.classListGraphSha256,
+    reorders: creatureProperties.classSpellReorders,
+    spellReorderConfirmed: true,
+  });
+  if (!mutation) fail("Creature class spell-entry reorder mutation is invalid.", targetPath);
+  for (const reorder of mutation.reorders) {
+    const list = source.entries[reorder.classSlotIndex]!.spellLists!.find((candidate) =>
+      candidate.listKind === reorder.listKind && candidate.spellLevel === reorder.spellLevel);
+    if (!list || list.entries.length < 2 || reorder.entryOrder.length !== list.entries.length) {
+      fail(
+        "Creature class spell-entry reorder list is absent from exact source provenance.",
+        `${targetPath}.classSpellReorders`,
+      );
+    }
+  }
+  return mutation;
+}
+
+function projectCreatureClassSpellReplacementMutation(
+  sourceInput: unknown,
+  creaturePropertiesInput: unknown,
+  sourcePath: string,
+  targetPath: string,
+): ExistingAreaCreatureClassSpellReplacementMutation | undefined {
+  const source = readAreaCreatureClassIdentityState(sourceInput);
+  if (!source) fail("Expected exact Creature ClassList graph provenance.", sourcePath);
+  if (!source.present || creaturePropertiesInput === undefined) return undefined;
+  const creatureProperties = record(creaturePropertiesInput, targetPath);
+  const hasReplacements = Object.prototype.hasOwnProperty.call(
+    creatureProperties,
+    "classSpellReplacements",
+  );
+  const hasConfirmation = Object.prototype.hasOwnProperty.call(
+    creatureProperties,
+    "classSpellReplacementConfirmed",
+  );
+  if (!hasReplacements && !hasConfirmation) return undefined;
+  if (!Array.isArray(creatureProperties.classSpellReplacements)) {
+    fail(
+      "Creature class spell-entry replacement target must be an ordered array.",
+      `${targetPath}.classSpellReplacements`,
+    );
+  }
+  if (creatureProperties.classSpellReplacements.length === 0 &&
+    creatureProperties.classSpellReplacementConfirmed !== true) return undefined;
+  if (!source.classesTable || !source.spellsTable ||
+    source.entries.some((entry) => !entry.spellLists)) {
+    fail(
+      "Creature spell-entry replacement requires exact bounded graph and table provenance.",
+      `${targetPath}.classSpellReplacements`,
+    );
+  }
+  if (Array.isArray(creatureProperties.classSpellClearSlotIndices) &&
+    creatureProperties.classSpellClearSlotIndices.length > 0 ||
+    Array.isArray(creatureProperties.classSpellRemovalTargets) &&
+    creatureProperties.classSpellRemovalTargets.length > 0 ||
+    Array.isArray(creatureProperties.classSpellReorders) &&
+    creatureProperties.classSpellReorders.length > 0) {
+    fail(
+      "Creature class spell-entry replacement cannot be combined with clear, removal, or reorder.",
+      `${targetPath}.classSpellReplacements`,
+    );
+  }
+  if (!Array.isArray(creatureProperties.classEntries) ||
+    creatureProperties.classEntries.length !== source.entries.length) {
+    fail(
+      "Creature spell-entry replacement must preserve the exact class and level roster.",
+      `${targetPath}.classEntries`,
+    );
+  }
+  for (const [index, entryInput] of creatureProperties.classEntries.entries()) {
+    const entry = record(entryInput, `${targetPath}.classEntries.${index}`);
+    if (entry.classId !== source.entries[index]!.classId ||
+      entry.level !== source.entries[index]!.level) {
+      fail(
+        "Creature spell-entry replacement must preserve the exact class and level roster.",
+        `${targetPath}.classEntries.${index}`,
+      );
+    }
+  }
+  if (creatureProperties.classSpellReplacementConfirmed !== true) {
+    fail(
+      "Creature class spell-entry replacement requires explicit confirmation.",
+      `${targetPath}.classSpellReplacementConfirmed`,
+    );
+  }
+  const mutation = readExistingAreaCreatureClassSpellReplacementMutation({
+    expectedClassIds: source.entries.map((entry) => entry.classId),
+    expectedLevels: source.entries.map((entry) => entry.level),
+    classListGraphSha256: source.classListGraphSha256,
+    classesTableSha256: source.classesTable.sha256,
+    classesRowCount: source.classesTable.rowCount,
+    spellsTableSha256: source.spellsTable.sha256,
+    spellsRowCount: source.spellsTable.rowCount,
+    replacements: creatureProperties.classSpellReplacements,
+    spellReplacementConfirmed: true,
+  });
+  if (!mutation) fail("Creature class spell-entry replacement mutation is invalid.", targetPath);
+  for (const replacement of mutation.replacements) {
+    const list = source.entries[replacement.classSlotIndex]!.spellLists!.find((candidate) =>
+      candidate.listKind === replacement.listKind &&
+      candidate.spellLevel === replacement.spellLevel);
+    const entry = list?.entries[replacement.entryIndex];
+    if (!entry || entry.spellId !== replacement.expectedSpellId ||
+      entry.spellMetaMagic !== 0) {
+      fail(
+        "Creature class spell-entry replacement source entry is absent, stale, or metamagic.",
+        `${targetPath}.classSpellReplacements`,
+      );
+    }
+  }
   return mutation;
 }
 
@@ -7571,6 +8237,50 @@ function projectTriggerTransitionStorageMutation(
   return mutation;
 }
 
+function projectTriggerCorePropertiesMutation(
+  sourceInput: unknown,
+  targetInput: unknown,
+  sourcePath: string,
+  targetPath: string,
+): ExistingAreaTriggerCorePropertiesMutation | undefined {
+  if (!isAreaTriggerCoreProperties(sourceInput)) {
+    fail("Trigger core-properties provenance is malformed.", sourcePath);
+  }
+  if (targetInput === undefined) return undefined;
+  if (areaTriggerCorePropertiesEqual(sourceInput, targetInput)) return undefined;
+  if (!isAreaTriggerCoreProperties(targetInput)) {
+    fail("Trigger core-properties target is malformed.", targetPath);
+  }
+  const mutation = readExistingAreaTriggerCorePropertiesMutation({
+    expectedValue: sourceInput,
+    value: targetInput,
+  });
+  if (!mutation) fail("Trigger core-properties mutation is invalid.", targetPath);
+  return mutation;
+}
+
+function projectTriggerTrapPropertiesMutation(
+  sourceInput: unknown,
+  targetInput: unknown,
+  sourcePath: string,
+  targetPath: string,
+): ExistingAreaTriggerTrapPropertiesMutation | undefined {
+  if (!isAreaTriggerTrapProperties(sourceInput)) {
+    fail("Trigger trap-properties provenance is malformed.", sourcePath);
+  }
+  if (targetInput === undefined) return undefined;
+  if (areaTriggerTrapPropertiesEqual(sourceInput, targetInput)) return undefined;
+  if (!isAreaTriggerTrapProperties(targetInput)) {
+    fail("Trigger trap-properties target is malformed.", targetPath);
+  }
+  const mutation = readExistingAreaTriggerTrapPropertiesMutation({
+    expectedValue: sourceInput,
+    value: targetInput,
+  });
+  if (!mutation) fail("Trigger trap-properties mutation is invalid.", targetPath);
+  return mutation;
+}
+
 function projectWaypointTagMutation(
   sourceInput: unknown,
   targetInput: unknown,
@@ -8105,7 +8815,65 @@ function projectItemLocalizedStringMutations(
   const target = record(targetInput, targetPath);
   const pairs: ExistingAreaItemLocalizedStringMutation[] = [];
   for (const mapping of AREA_ITEM_LOCALIZED_STRING_MUTATION_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(target, mapping.targetKey)) continue;
+    const targetEntriesKey = mapping.targetKey === "identifiedDescription"
+      ? "identifiedDescriptionEntries"
+      : `${mapping.targetKey}Entries`;
+    const hasTargetValue = Object.prototype.hasOwnProperty.call(target, mapping.targetKey);
+    const hasTargetEntries = Object.prototype.hasOwnProperty.call(target, targetEntriesKey);
+    if (!hasTargetValue && !hasTargetEntries) continue;
+    if (hasTargetEntries) {
+      if (!hasTargetValue) {
+        fail(
+          `A complete ${mapping.field} entry target requires its scalar default target.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      const sourceStorage = readEditableAreaItemLocalizedStringStorage(
+        source[mapping.sourceKey],
+        mapping.maxBytes,
+      );
+      if (!sourceStorage) {
+        fail(
+          `Expected one complete ordered inline-ASCII ${mapping.field} source value.`,
+          `${sourcePath}.${mapping.sourceKey}`,
+        );
+      }
+      const valueEntries = readEditableAreaItemLocalizedStringEntries(
+        target[targetEntriesKey],
+        mapping.maxBytes,
+      );
+      if (!valueEntries) {
+        fail(
+          `Expected one complete ordered inline-ASCII ${mapping.field} target list.`,
+          `${targetPath}.${targetEntriesKey}`,
+        );
+      }
+      const value = target[mapping.targetKey];
+      if (!isAreaItemInlineAsciiText(value, mapping.maxBytes)) {
+        fail(
+          `Expected printable ASCII ${mapping.field} text within ${mapping.maxBytes} bytes.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      const targetDefault = valueEntries.find((entry) => entry.languageId === 0)?.text ?? "";
+      if (targetDefault !== value) {
+        fail(
+          `${mapping.field} scalar target must equal entry identifier 0 or the empty-list value.`,
+          `${targetPath}.${mapping.targetKey}`,
+        );
+      }
+      if (!areaItemLocalizedStringEntriesEqual(sourceStorage.entries, valueEntries)) {
+        pairs.push({
+          field: mapping.field,
+          expectedValue: sourceStorage.value,
+          value,
+          expectedProfile: sourceStorage.profile,
+          expectedEntries: sourceStorage.entries,
+          valueEntries,
+        });
+      }
+      continue;
+    }
     const expectedValue = readAreaItemInlineAsciiStorage(
       source[mapping.sourceKey],
       mapping.maxBytes,

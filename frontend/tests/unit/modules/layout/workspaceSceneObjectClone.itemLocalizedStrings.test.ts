@@ -29,8 +29,17 @@ describe("cloneSceneObject ground-item localized strings", () => {
     item.itemProperties = {
       ...(item.itemProperties ?? {}),
       localizedName: "Changed",
+      localizedNameEntries: [
+        { languageId: 42, text: "Retained unknown" },
+        { languageId: 0, text: "Changed" },
+      ],
       description: "Changed description",
+      descriptionEntries: [{ languageId: 0, text: "Changed description" }],
       identifiedDescription: "Changed identified description",
+      identifiedDescriptionEntries: [
+        { languageId: 0, text: "Changed identified description" },
+        { languageId: 10, text: "Rozpoznany opis" },
+      ],
     };
 
     const cloned = cloneSceneObject(item);
@@ -43,5 +52,15 @@ describe("cloneSceneObject ground-item localized strings", () => {
       cloned.source.itemLocalizedStrings.localizedName.entries)
       .not.toBe(storage.localizedName.entries);
     expect(cloned.itemProperties).not.toBe(item.itemProperties);
+    expect(cloned.itemProperties?.localizedNameEntries)
+      .toEqual(item.itemProperties.localizedNameEntries);
+    expect(cloned.itemProperties?.localizedNameEntries)
+      .not.toBe(item.itemProperties.localizedNameEntries);
+    expect(cloned.itemProperties?.localizedNameEntries?.[0])
+      .not.toBe(item.itemProperties.localizedNameEntries?.[0]);
+    expect(cloned.itemProperties?.descriptionEntries)
+      .not.toBe(item.itemProperties.descriptionEntries);
+    expect(cloned.itemProperties?.identifiedDescriptionEntries)
+      .not.toBe(item.itemProperties.identifiedDescriptionEntries);
   });
 });

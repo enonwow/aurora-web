@@ -15,6 +15,7 @@ import type {
   SceneObjectEncounterSpawnPointListProvenance,
   SceneObjectEncounterVariableProvenance,
   SceneObjectWaypointVariableProvenance,
+  SceneObjectTriggerVariableProvenance,
   SceneObjectItemProperties,
   SceneObjectItemPropertyListProvenance,
   SceneObjectItemVariableProvenance,
@@ -104,6 +105,14 @@ import {
   isTriggerTransitionStorage,
 } from "../../scene/domain/triggerTransitionStorage";
 import {
+  cloneTriggerCoreProperties,
+  isTriggerCoreProperties,
+} from "../../scene/domain/triggerCoreProperties";
+import {
+  cloneTriggerTrapProperties,
+  isTriggerTrapProperties,
+} from "../../scene/domain/triggerTrapProperties";
+import {
   cloneEncounterActiveStorage,
   readEncounterActiveStorage,
 } from "../../scene/domain/encounterActive";
@@ -156,7 +165,7 @@ import {
   MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES,
   MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES,
   cloneItemLocalizedStrings,
-  readItemLocalizedStringInlineAsciiStorage,
+  readEditableItemLocalizedStringStorage,
   readItemLocalizedStrings,
 } from "../../scene/domain/itemLocalizedStrings";
 import { readCreatureConversationStorage } from "../../scene/domain/creatureConversation";
@@ -190,6 +199,7 @@ import {
 import { readCreatureVariableProvenance } from "../../scene/domain/creatureVariableTable";
 import { readEncounterVariableProvenance } from "../../scene/domain/encounterVariableTable";
 import { readWaypointVariableProvenance } from "../../scene/domain/waypointVariableTable";
+import { readTriggerVariableProvenance } from "../../scene/domain/triggerVariableTable";
 import { readEncounterCreatureListProvenance } from
   "../../scene/domain/encounterCreatureSingleSpawn";
 import {
@@ -243,7 +253,7 @@ import {
   MAX_CREATURE_LAST_NAME_ASCII_BYTES,
   MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
   cloneCreatureNameLocalizedStrings,
-  readCreatureNameInlineAsciiStorage,
+  readEditableCreatureLocalizedStringStorage,
   readCreatureNameLocalizedStrings,
 } from "../../scene/domain/creatureNameLocalizedStrings";
 import { readPlaceableDurabilitySaveBytes } from "../../scene/domain/placeableDurabilitySaveBytes";
@@ -359,7 +369,7 @@ import { readAuroraVariableProvenance } from "../../shared/domain/auroraVariable
 import {
   MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES,
   MAX_PLACEABLE_LOC_NAME_ASCII_BYTES,
-  readPlaceableInlineAsciiStorage,
+  readEditablePlaceableLocalizedStringStorage,
   readPlaceableLocalizedStrings
 } from "../../scene/domain/placeableLocalizedStrings";
 import {
@@ -793,15 +803,15 @@ function toSceneObject(
   const creatureLocalizedStrings = sceneKind === "creatures"
     ? readCreatureNameLocalizedStrings(entry.creatureLocalizedStrings)
     : undefined;
-  const exactCreatureFirstName = readCreatureNameInlineAsciiStorage(
+  const exactCreatureFirstName = readEditableCreatureLocalizedStringStorage(
     creatureLocalizedStrings?.firstName,
     MAX_CREATURE_FIRST_NAME_ASCII_BYTES,
   );
-  const exactCreatureLastName = readCreatureNameInlineAsciiStorage(
+  const exactCreatureLastName = readEditableCreatureLocalizedStringStorage(
     creatureLocalizedStrings?.lastName,
     MAX_CREATURE_LAST_NAME_ASCII_BYTES,
   );
-  const exactCreatureDescription = readCreatureNameInlineAsciiStorage(
+  const exactCreatureDescription = readEditableCreatureLocalizedStringStorage(
     creatureLocalizedStrings?.description,
     MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
   );
@@ -821,13 +831,22 @@ function toSceneObject(
     }));
   }
   if (creatureProperties && exactCreatureFirstName !== undefined) {
-    creatureProperties.firstName = exactCreatureFirstName;
+    creatureProperties.firstName = exactCreatureFirstName.value;
+    creatureProperties.firstNameEntries = exactCreatureFirstName.entries.map((entry) => ({
+      ...entry,
+    }));
   }
   if (creatureProperties && exactCreatureLastName !== undefined) {
-    creatureProperties.lastName = exactCreatureLastName;
+    creatureProperties.lastName = exactCreatureLastName.value;
+    creatureProperties.lastNameEntries = exactCreatureLastName.entries.map((entry) => ({
+      ...entry,
+    }));
   }
   if (creatureProperties && exactCreatureDescription !== undefined) {
-    creatureProperties.description = exactCreatureDescription;
+    creatureProperties.description = exactCreatureDescription.value;
+    creatureProperties.descriptionEntries = exactCreatureDescription.entries.map((entry) => ({
+      ...entry,
+    }));
   }
   if (creatureProperties && creatureEditorComment !== undefined) {
     creatureProperties.comments = creatureEditorComment;
@@ -1168,6 +1187,18 @@ function toSceneObject(
     && isTriggerTransitionStorage(entry.triggerTransitionStorage)
     ? entry.triggerTransitionStorage
     : undefined;
+  const triggerCoreProperties = sceneKind === "triggers"
+    && isTriggerCoreProperties(entry.triggerCoreProperties)
+    ? entry.triggerCoreProperties
+    : undefined;
+  const triggerTrapProperties = sceneKind === "triggers"
+    && isTriggerTrapProperties(entry.triggerTrapProperties)
+    ? entry.triggerTrapProperties
+    : undefined;
+  const triggerVariables: SceneObjectTriggerVariableProvenance | null =
+    sceneKind === "triggers"
+      ? readTriggerVariableProvenance(entry.triggerVariables)
+      : null;
   const encounterTemplateResRefStorage = sceneKind === "encounters"
     ? readEncounterTemplateResRefStorage(entry.encounterTemplateResRef)
     : null;
@@ -1331,15 +1362,15 @@ function toSceneObject(
       itemBaseAppearance.expectedValue,
     );
   }
-  const exactItemLocalizedName = readItemLocalizedStringInlineAsciiStorage(
+  const exactItemLocalizedName = readEditableItemLocalizedStringStorage(
     itemLocalizedStrings?.localizedName,
     MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES,
   );
-  const exactItemDescription = readItemLocalizedStringInlineAsciiStorage(
+  const exactItemDescription = readEditableItemLocalizedStringStorage(
     itemLocalizedStrings?.description,
     MAX_ITEM_DESCRIPTION_ASCII_BYTES,
   );
-  const exactItemIdentifiedDescription = readItemLocalizedStringInlineAsciiStorage(
+  const exactItemIdentifiedDescription = readEditableItemLocalizedStringStorage(
     itemLocalizedStrings?.identifiedDescription,
     MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES,
   );
@@ -1351,13 +1382,23 @@ function toSceneObject(
     itemProperties = {
       ...(itemProperties ?? {}),
       ...(exactItemLocalizedName !== undefined
-        ? { localizedName: exactItemLocalizedName }
+        ? {
+            localizedName: exactItemLocalizedName.value,
+            localizedNameEntries: exactItemLocalizedName.entries.map((entry) => ({ ...entry })),
+          }
         : {}),
       ...(exactItemDescription !== undefined
-        ? { description: exactItemDescription }
+        ? {
+            description: exactItemDescription.value,
+            descriptionEntries: exactItemDescription.entries.map((entry) => ({ ...entry })),
+          }
         : {}),
       ...(exactItemIdentifiedDescription !== undefined
-        ? { identifiedDescription: exactItemIdentifiedDescription }
+        ? {
+            identifiedDescription: exactItemIdentifiedDescription.value,
+            identifiedDescriptionEntries:
+              exactItemIdentifiedDescription.entries.map((entry) => ({ ...entry })),
+          }
         : {}),
     };
   }
@@ -1422,14 +1463,16 @@ function toSceneObject(
   const placeableLocalizedStrings = readPlaceableLocalizedStrings(
     entry.placeableLocalizedStrings,
   );
-  const placeableLocalizedName = readPlaceableInlineAsciiStorage(
+  const placeableLocalizedNameStorage = readEditablePlaceableLocalizedStringStorage(
     placeableLocalizedStrings?.locName,
     MAX_PLACEABLE_LOC_NAME_ASCII_BYTES,
   );
-  const placeableDescription = readPlaceableInlineAsciiStorage(
+  const placeableDescriptionStorage = readEditablePlaceableLocalizedStringStorage(
     placeableLocalizedStrings?.description,
     MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES,
   );
+  const placeableLocalizedName = placeableLocalizedNameStorage?.value;
+  const placeableDescription = placeableDescriptionStorage?.value;
   const exactPlaceableTag = sceneKind === "placeables" && placeableBasicIdentity?.tag.present === true
     ? placeableBasicIdentity.tag.value
     : undefined;
@@ -1465,7 +1508,9 @@ function toSceneObject(
     placeableAppearanceType,
     placeableHitPointState,
     placeableLocalizedName,
-    placeableDescription
+    placeableLocalizedNameStorage?.entries,
+    placeableDescription,
+    placeableDescriptionStorage?.entries,
   );
   const hasGitFirstName = hasMetadataKey(entry.creatureMetadata, "firstName");
   const visualTransform = cloneVisualTransform(entry.visualTransform);
@@ -1987,6 +2032,25 @@ function toSceneObject(
               cloneTriggerTransitionStorage(triggerTransitionStorage),
           }
         : {}),
+      ...(sceneKind === "triggers" && triggerCoreProperties
+        ? {
+            triggerCoreProperties:
+              cloneTriggerCoreProperties(triggerCoreProperties),
+          }
+        : {}),
+      ...(sceneKind === "triggers" && triggerTrapProperties
+        ? {
+            triggerTrapProperties:
+              cloneTriggerTrapProperties(triggerTrapProperties),
+          }
+        : {}),
+      ...(sceneKind === "triggers" && triggerVariables
+        ? {
+            triggerVariables: {
+              expectedEntries: triggerVariables.expectedEntries.map((entry) => ({ ...entry })),
+            },
+          }
+        : {}),
       ...(sceneKind === "encounters" && encounterTag
         ? { encounterTag: { ...encounterTag } }
         : {}),
@@ -2297,6 +2361,25 @@ function toSceneObject(
       ? {
           triggerTransitionStorage:
             cloneTriggerTransitionStorage(triggerTransitionStorage),
+        }
+      : {}),
+    ...(triggerCoreProperties
+      ? {
+          triggerCoreProperties:
+            cloneTriggerCoreProperties(triggerCoreProperties),
+        }
+      : {}),
+    ...(triggerTrapProperties
+      ? {
+          triggerTrapProperties:
+            cloneTriggerTrapProperties(triggerTrapProperties),
+        }
+      : {}),
+    ...(triggerVariables
+      ? {
+          triggerVariables: triggerVariables.expectedEntries.map(
+            ({ sourceIndex: _, ...entry }) => ({ ...entry }),
+          ),
         }
       : {}),
     ...(waypointLocalizedName !== undefined
@@ -2683,6 +2766,15 @@ function cloneCreatureProperties(
 ): SceneObjectCreatureProperties {
   return {
     ...source,
+    ...(source.firstNameEntries
+      ? { firstNameEntries: source.firstNameEntries.map((entry) => ({ ...entry })) }
+      : {}),
+    ...(source.lastNameEntries
+      ? { lastNameEntries: source.lastNameEntries.map((entry) => ({ ...entry })) }
+      : {}),
+    ...(source.descriptionEntries
+      ? { descriptionEntries: source.descriptionEntries.map((entry) => ({ ...entry })) }
+      : {}),
     statistics: source.statistics
       ? {
           ...source.statistics,
@@ -2730,7 +2822,13 @@ function clonePlaceableProperties(
       : {}),
     ...(source.variables
       ? { variables: source.variables.map((entry) => ({ ...entry })) }
-      : {})
+      : {}),
+    ...(source.localizedNameEntries
+      ? { localizedNameEntries: source.localizedNameEntries.map((entry) => ({ ...entry })) }
+      : {}),
+    ...(source.descriptionEntries
+      ? { descriptionEntries: source.descriptionEntries.map((entry) => ({ ...entry })) }
+      : {}),
   };
 }
 
@@ -2827,7 +2925,9 @@ function mergeAreaPlaceableProperties(
   placeableAppearanceType: number | undefined,
   placeableHitPointState: Readonly<PlaceableHitPointState> | undefined,
   placeableLocalizedName: string | undefined,
-  placeableDescription: string | undefined
+  placeableLocalizedNameEntries: SceneObjectPlaceableProperties["localizedNameEntries"] | undefined,
+  placeableDescription: string | undefined,
+  placeableDescriptionEntries: SceneObjectPlaceableProperties["descriptionEntries"] | undefined,
 ): SceneObjectPlaceableProperties {
   const merged = templateProperties
     ? clonePlaceableProperties(templateProperties)
@@ -2865,13 +2965,17 @@ function mergeAreaPlaceableProperties(
   }
   if (placeableLocalizedName !== undefined) {
     merged.localizedName = placeableLocalizedName;
+    merged.localizedNameEntries = placeableLocalizedNameEntries?.map((entry) => ({ ...entry }));
   } else {
     delete merged.localizedName;
+    delete merged.localizedNameEntries;
   }
   if (placeableDescription !== undefined) {
     merged.description = placeableDescription;
+    merged.descriptionEntries = placeableDescriptionEntries?.map((entry) => ({ ...entry }));
   } else {
     delete merged.description;
+    delete merged.descriptionEntries;
   }
   if (
     placeableTemplateResRef === undefined &&

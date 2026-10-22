@@ -33,12 +33,13 @@ describe("HTTP controllers", () => {
     } as AppConfigService);
     expect(controller.getHealth()).toEqual(
       expect.objectContaining({
-      status: "ok",
+        status: "ok",
         service: "aurora-backend",
         runtimeStartedAt: expect.any(String),
         processId: process.pid,
+        contractVersion: "1.0.0",
         vfxRuntimeRevision:
-          "vfx-placeable-canonical-host-light-source-v2-emitter-shell-filter",
+          "vfx-recursive-chunk-shared-rng-instance-frames-v1",
         runtimeBuild: {
           commit: "backend-commit-sha",
           imageDigest: "sha256:backend-image",
@@ -46,7 +47,7 @@ describe("HTTP controllers", () => {
           processStartedAt: expect.any(String),
           contractVersion: "1.0.0",
           vfxRuntimeRevision:
-            "vfx-placeable-canonical-host-light-source-v2-emitter-shell-filter"
+            "vfx-recursive-chunk-shared-rng-instance-frames-v1"
         }
       })
     );

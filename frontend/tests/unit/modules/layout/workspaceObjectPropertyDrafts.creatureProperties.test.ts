@@ -564,6 +564,47 @@ describe("workspaceObjectPropertyDrafts creature properties", () => {
       999;
     expect(draft.inventoryItems[0]?.embeddedItem?.itemPropertyListEntries?.[0]?.subtype).toBe(66);
   });
+
+  it("deep clones a staged Creature class spell-list clear into the property draft", () => {
+    const creature = createNewSceneObject("creatures", 1, 1, 15);
+    creature.creatureProperties!.classSpellClearSlotIndices = [0, 2];
+    creature.creatureProperties!.classSpellClearConfirmed = true;
+
+    const draft = buildCreaturePropertiesDraft(creature);
+
+    expect(draft.classSpellClearSlotIndices).toEqual([0, 2]);
+    expect(draft.classSpellClearSlotIndices).not.toBe(
+      creature.creatureProperties?.classSpellClearSlotIndices,
+    );
+    expect(draft.classSpellClearConfirmed).toBe(true);
+    draft.classSpellClearSlotIndices.push(4);
+    expect(creature.creatureProperties?.classSpellClearSlotIndices).toEqual([0, 2]);
+  });
+
+  it("deep clones staged Creature class spell-entry reorders into the property draft", () => {
+    const creature = createNewSceneObject("creatures", 1, 1, 15);
+    creature.creatureProperties!.classSpellReorders = [{
+      classSlotIndex: 0,
+      listKind: "known",
+      spellLevel: 1,
+      entryOrder: [1, 0],
+    }];
+    creature.creatureProperties!.classSpellReorderConfirmed = true;
+
+    const draft = buildCreaturePropertiesDraft(creature);
+
+    expect(draft.classSpellReorders).toEqual([{
+      classSlotIndex: 0,
+      listKind: "known",
+      spellLevel: 1,
+      entryOrder: [1, 0],
+    }]);
+    expect(draft.classSpellReorders).not.toBe(creature.creatureProperties?.classSpellReorders);
+    expect(draft.classSpellReorders[0]?.entryOrder).not.toBe(
+      creature.creatureProperties?.classSpellReorders?.[0]?.entryOrder,
+    );
+    expect(draft.classSpellReorderConfirmed).toBe(true);
+  });
 });
 
 function sourceSortedEquipment(

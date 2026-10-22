@@ -57,6 +57,8 @@ import type { EffectiveCreatureFeatsTwoDaTable } from
   "../../domain/effective-creature-feats-two-da";
 import type { EffectiveCreatureSpecialAbilitiesTwoDaTable } from
   "../../domain/effective-creature-special-abilities-two-da";
+import type { EffectiveCreatureClassSpellsTwoDaTable } from
+  "../../domain/effective-creature-class-spells-two-da";
 import type { ModuleFactionCatalog } from "../../domain/module-faction-catalog";
 import type { EffectiveAreaAudioCatalogBundle } from "../../domain/effective-area-audio-two-da";
 import type { EffectiveAreaLoadingScreenCatalog } from "../../domain/effective-area-loading-screen-two-da";
@@ -208,6 +210,8 @@ export type EffectiveCreatureSkillsTwoDaTableResult = EffectiveCreatureSkillsTwo
 export type EffectiveCreatureFeatsTwoDaTableResult = EffectiveCreatureFeatsTwoDaTable;
 export type EffectiveCreatureSpecialAbilitiesTwoDaTableResult =
   EffectiveCreatureSpecialAbilitiesTwoDaTable;
+export type EffectiveCreatureClassSpellsTwoDaTableResult =
+  EffectiveCreatureClassSpellsTwoDaTable;
 export type ModuleFactionCatalogResult = ModuleFactionCatalog;
 export type EffectiveAreaAudioCatalogBundleResult = EffectiveAreaAudioCatalogBundle;
 export type EffectiveAreaLoadingScreenCatalogResult = EffectiveAreaLoadingScreenCatalog;
@@ -402,6 +406,9 @@ export interface TemplateCatalogRepositoryPort {
   >;
   resolveEffectiveCreatureSpecialAbilitiesTwoDaTable?(): Promise<
     EffectiveCreatureSpecialAbilitiesTwoDaTableResult | null
+  >;
+  resolveEffectiveCreatureClassSpellsTwoDaTable?(): Promise<
+    EffectiveCreatureClassSpellsTwoDaTableResult | null
   >;
   resolveEffectiveAreaAudioCatalogs?(): Promise<EffectiveAreaAudioCatalogBundleResult | null>;
   resolveEffectiveAreaVisualEnvironmentCatalogs?(): Promise<EffectiveAreaVisualEnvironmentCatalogBundleResult | null>;

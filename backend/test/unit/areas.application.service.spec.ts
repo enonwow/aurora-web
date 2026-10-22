@@ -1037,12 +1037,12 @@ describe("AreasApplicationService", () => {
         bodyPartTorso: 43,
         leather1Color: 5,
         metal2Color: 8,
-        identified: true,
-        plot: true,
-        "script.onused": "it_onuse",
-        itemPropertyListCount: 1
-      }
-    });
+         identified: true,
+         plot: true,
+         itemPropertyListCount: 1
+       }
+     });
+    expect(parsed?.items[0]?.itemMetadata).not.toHaveProperty("script.onused");
   });
 
   it("exports supported whole-area GIT root lists and ARE metadata bytes", async () => {

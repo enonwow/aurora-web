@@ -19,6 +19,7 @@ describe("Area GIT retained Store script-ResRef parsing", () => {
           onOpenStore: "",
           onStoreClosed: "nw_store_close",
         },
+        variables: { expectedEntries: [] },
       });
   });
 
@@ -34,7 +35,7 @@ describe("Area GIT retained Store script-ResRef parsing", () => {
   ] as const)("keeps %s scripts preserve-only", (_label, fields) => {
     const store = parseAreaObjectsFromGitGff(git(fields as SupportedGffField[]))?.stores[0];
     expect(store).toBeDefined();
-    expect(store?.storeMetadata).toBeUndefined();
+    expect(store?.storeMetadata).toEqual({ variables: { expectedEntries: [] } });
   });
 
   it("keeps a physically invalid source ResRef preserve-only", () => {
@@ -43,7 +44,8 @@ describe("Area GIT retained Store script-ResRef parsing", () => {
     const offset = bytes.indexOf(Buffer.from("nw_store_open", "ascii"));
     expect(offset).toBeGreaterThan(0);
     bytes[offset + 2] = "-".charCodeAt(0);
-    expect(parseAreaObjectsFromGitGff(bytes)?.stores[0]?.storeMetadata).toBeUndefined();
+    expect(parseAreaObjectsFromGitGff(bytes)?.stores[0]?.storeMetadata)
+      .toEqual({ variables: { expectedEntries: [] } });
   });
 
   it("keeps a physically over-length source ResRef preserve-only", () => {
@@ -52,7 +54,8 @@ describe("Area GIT retained Store script-ResRef parsing", () => {
     const offset = bytes.indexOf(Buffer.from("abcdefghijklmnop", "ascii"));
     expect(offset).toBeGreaterThan(0);
     bytes[offset - 1] = 17;
-    expect(parseAreaObjectsFromGitGff(bytes)?.stores[0]?.storeMetadata).toBeUndefined();
+    expect(parseAreaObjectsFromGitGff(bytes)?.stores[0]?.storeMetadata)
+      .toEqual({ variables: { expectedEntries: [] } });
   });
 
   it("merges independently admitted scripts and commerce metadata", () => {
@@ -76,6 +79,7 @@ describe("Area GIT retained Store script-ResRef parsing", () => {
         maxBuyPrice: -1,
         storeGold: -1,
       },
+      variables: { expectedEntries: [] },
     });
   });
 

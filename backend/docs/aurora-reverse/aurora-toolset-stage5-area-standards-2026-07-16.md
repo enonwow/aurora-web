@@ -147,6 +147,34 @@ Approved helpers:
 Canonical packet:
 `evidence/stage5-live-2026-07-16/s05-05-new-area/README.md`.
 
+### Tileset list identity (2026-10-02 correction)
+
+The tileset selector must resolve one visible, enabled, nonempty `TListBox`
+whose entries contain the caller's exact, case-sensitive tileset text. List
+cardinality is not control identity: attached custom HAK tilesets can increase
+the stock count. Reject multiple matching lists and duplicate matching labels;
+keep the existing selection-index readback and subsequent wizard guards.
+
+The fixed-count `33` predicate failed before selection on a recorded 34-entry
+wizard, while the stock 33-entry fixture remained positive. The correction is
+only that predicate; it adds no runner, transport, module policy or UI action.
+The frozen recorded listboxes are embedded in the regression test, with their
+original packet SHA-256. Unit cases also cover arbitrary literal names, missing
+entries, duplicate lists/labels, hidden/disabled controls and case/space aliases.
+
+Offline verification from `backend` on Windows (Node and PowerShell required):
+
+```powershell
+node --test --test-reporter=tap test/unit/area-wizard-tileset-selector.test.mjs test/regression-smoke/area-wizard-tileset-selector.test.mjs
+```
+
+Expected result: 16 tests pass. Tests extract and execute only the production
+selector's pure prefix over JSON; they never load the executor, User32 or a
+Toolset/NWN API. Original source, input packet and before/after test logs are
+retained in the consuming task's active evidence for independent audit. This
+closes the generic selector gap offline; native New Area creation and the
+reported Access Violation remain separate proof points.
+
 ## AUR-S05-06 — Area resize
 
 The native expanding resize path is a verified negative path in retail Toolset
@@ -227,3 +255,31 @@ The canonical packet is
 It proves `area001`, tileset `tcm02`, tile count `64`, object count `1`, exact
 single mutation `index 35 / row 4 / col 3`, `Tile_ID 183 → 34`, identical
 saved/reopened state, and exact final rollback.
+
+
+### Module tree identity in compact frames (2026-10-02 correction)
+
+The module tree selector uses the exact owned frame's rectangle, not desktop
+coordinates or a fixed total tree height. Require a visible, enabled
+TTreeView with width at least 250 pixels, height at least half the frame,
+and its complete rectangle contained in the left 40 percent of that frame.
+Require exactly one candidate. This excludes the right palette, short bottom
+trees, out-of-frame and oversized controls. Keep process/frame/monitor checks,
+remote selected-node identity, and the deletion path's no-modal guards intact.
+
+The recorded 1440x753 frame contained a 287x582 module tree. The former
+height>=700 predicate rejected it before any input. The stock tall-frame
+fixture remains positive; translating the frame does not change identity.
+This correction changes only selection and enabled-state admission, adds no
+transport or live retry, and does not establish New Area or rollback success.
+
+Offline verification, Node built-in tests only (no User32 or process access):
+
+~~~powershell
+node --test backend/test/unit/area-tree-pane-selector.test.mjs backend/test/regression-smoke/area-tree-pane-selector.test.mjs
+~~~
+
+Expected result: 34 passing checks against both actual source predicates.
+The exact captured control packet is retained as the regression fixture;
+the consuming task retains original sources and before/after test receipts
+for the independent audit. No redundant generated artifacts were produced.

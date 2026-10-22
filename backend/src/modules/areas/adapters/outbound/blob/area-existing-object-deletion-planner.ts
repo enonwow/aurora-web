@@ -157,6 +157,22 @@ import {
   type ExistingAreaCreatureClassSlotResizeMutation,
 } from "../../../domain/area-creature-class-slot-resize";
 import {
+  readExistingAreaCreatureClassSpellClearMutation,
+  type ExistingAreaCreatureClassSpellClearMutation,
+} from "../../../domain/area-creature-class-spell-clear";
+import {
+  readExistingAreaCreatureClassSpellRemovalMutation,
+  type ExistingAreaCreatureClassSpellRemovalMutation,
+} from "../../../domain/area-creature-class-spell-removal";
+import {
+  readExistingAreaCreatureClassSpellReorderMutation,
+  type ExistingAreaCreatureClassSpellReorderMutation,
+} from "../../../domain/area-creature-class-spell-reorder";
+import {
+  readExistingAreaCreatureClassSpellReplacementMutation,
+  type ExistingAreaCreatureClassSpellReplacementMutation,
+} from "../../../domain/area-creature-class-spell-replacement";
+import {
   readAreaCreaturePhenotypeStorage,
   readExistingAreaCreaturePhenotypeMutation,
   type AreaCreaturePhenotypeStorage,
@@ -242,6 +258,8 @@ import {
 } from "../../../domain/area-creature-script-resrefs";
 import {
   AREA_CREATURE_NAME_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaCreatureLocalizedStringEntriesEqual,
+  readEditableAreaCreatureLocalizedStringStorage,
   readAreaCreatureNameInlineAsciiStorage,
   readExistingAreaCreatureNameLocalizedStringMutations,
   type ExistingAreaCreatureNameLocalizedStringMutation,
@@ -349,6 +367,18 @@ import {
   readExistingAreaTriggerTransitionStorageMutation,
   type ExistingAreaTriggerTransitionStorageMutation,
 } from "../../../domain/area-trigger-transition-storage";
+import {
+  areaTriggerCorePropertiesEqual,
+  isAreaTriggerCoreProperties,
+  readExistingAreaTriggerCorePropertiesMutation,
+  type ExistingAreaTriggerCorePropertiesMutation,
+} from "../../../domain/area-trigger-core-properties";
+import {
+  areaTriggerTrapPropertiesEqual,
+  isAreaTriggerTrapProperties,
+  readExistingAreaTriggerTrapPropertiesMutation,
+  type ExistingAreaTriggerTrapPropertiesMutation,
+} from "../../../domain/area-trigger-trap-properties";
 import {
   readExistingAreaEncounterTagMutation,
   readExistingAreaEncounterTagStorage,
@@ -469,6 +499,11 @@ import {
   type ExistingAreaWaypointVariableMutation,
 } from "../../../domain/area-waypoint-variable-table";
 import {
+  areaTriggerVariableSourceEntriesEqual,
+  parseAreaTriggerVariableMutation,
+  type ExistingAreaTriggerVariableMutation,
+} from "../../../domain/area-trigger-variable-table";
+import {
   areaEncounterCreatureListEntriesEqual,
   parseAreaEncounterCreatureListMutation,
   type ExistingAreaEncounterCreatureListMutation,
@@ -492,6 +527,8 @@ import {
 import { readAreaItemLocalizedStrings } from "../../../domain/area-item-localized-strings";
 import {
   AREA_ITEM_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaItemLocalizedStringEntriesEqual,
+  readEditableAreaItemLocalizedStringStorage,
   readAreaItemInlineAsciiStorage,
   readExistingAreaItemLocalizedStringMutations,
   type ExistingAreaItemLocalizedStringMutation,
@@ -558,6 +595,8 @@ import {
 } from "../../../domain/area-placeable-tag";
 import {
   AREA_PLACEABLE_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaPlaceableLocalizedStringEntriesEqual,
+  readEditableAreaPlaceableLocalizedStringStorage,
   readAreaPlaceableInlineAsciiStorage,
   readExistingAreaPlaceableLocalizedStringMutations,
   type ExistingAreaPlaceableLocalizedStringMutation,
@@ -1701,6 +1740,9 @@ function planPropertyMutations(
           "editorComment",
           "scripts",
           "transitionStorage",
+          "coreProperties",
+          "trapProperties",
+          "variables",
         ].includes(key),
       );
       const hasTag = Object.prototype.hasOwnProperty.call(rawMutation, "tag");
@@ -1721,12 +1763,22 @@ function planPropertyMutations(
         rawMutation,
         "transitionStorage",
       );
+      const hasCoreProperties = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "coreProperties",
+      );
+      const hasTrapProperties = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "trapProperties",
+      );
+      const hasVariables = Object.prototype.hasOwnProperty.call(rawMutation, "variables");
       if (
         unexpected !== undefined ||
         (!hasTag && !hasTemplateResRef && !hasLocalizedName && !hasEditorComment &&
-          !hasScripts && !hasTransitionStorage)
+          !hasScripts && !hasTransitionStorage && !hasCoreProperties &&
+          !hasTrapProperties && !hasVariables)
       ) {
-        throw invalid("A Trigger property mutation requires Tag, TemplateResRef, LocalizedName, Comment, scripts, and/or transition-storage CAS.", [
+        throw invalid("A Trigger property mutation requires Tag, TemplateResRef, LocalizedName, Comment, scripts, transition-storage, and/or VarTable CAS.", [
           mutation.sourceObjectId,
           `field=${unexpected ?? "missing"}`,
         ]);
@@ -1810,6 +1862,33 @@ function planPropertyMutations(
                 mutation.sourceObjectId,
                 source.placement.triggerTransitionStorage,
                 rawMutation.transitionStorage,
+              ),
+            }
+          : {}),
+        ...(hasCoreProperties
+          ? {
+              coreProperties: planTriggerCorePropertiesMutation(
+                mutation.sourceObjectId,
+                source.placement.triggerCoreProperties,
+                rawMutation.coreProperties,
+              ),
+            }
+          : {}),
+        ...(hasTrapProperties
+          ? {
+              trapProperties: planTriggerTrapPropertiesMutation(
+                mutation.sourceObjectId,
+                source.placement.triggerTrapProperties,
+                rawMutation.trapProperties,
+              ),
+            }
+          : {}),
+        ...(hasVariables
+          ? {
+              variables: planTriggerVariableMutation(
+                mutation.sourceObjectId,
+                source.placement.triggerVariables,
+                rawMutation.variables,
               ),
             }
           : {}),
@@ -2272,6 +2351,10 @@ function planPropertyMutations(
           "classLevels",
           "classIdentity",
           "classSlotResize",
+          "classSpellClear",
+          "classSpellRemoval",
+          "classSpellReorder",
+          "classSpellReplacement",
           "phenotype",
           "portrait",
           "challengeRating",
@@ -2339,6 +2422,22 @@ function planPropertyMutations(
         rawMutation,
         "classSlotResize",
       );
+      const hasClassSpellClear = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "classSpellClear",
+      );
+      const hasClassSpellRemoval = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "classSpellRemoval",
+      );
+      const hasClassSpellReorder = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "classSpellReorder",
+      );
+      const hasClassSpellReplacement = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "classSpellReplacement",
+      );
       const hasPhenotype = Object.prototype.hasOwnProperty.call(rawMutation, "phenotype");
       const hasPortrait = Object.prototype.hasOwnProperty.call(rawMutation, "portrait");
       const hasChallengeRating = Object.prototype.hasOwnProperty.call(
@@ -2383,7 +2482,7 @@ function planPropertyMutations(
       const hasEquipment = Object.prototype.hasOwnProperty.call(rawMutation, "equipment");
       if (
         unexpected !== undefined ||
-        (!hasTag && !hasConversation && !hasInterruptable && !hasAdvancedFlags && !hasBodyBag && !hasDecayTime && !hasAppearance && !hasGender && !hasPerceptionRange && !hasWalkRate && !hasSoundSetFile && !hasStartingPackage && !hasSkillList && !hasFeatList && !hasSpecialAbilityList && !hasVariables && !hasEditorComment && !hasClassLevels && !hasClassIdentity && !hasClassSlotResize && !hasPhenotype && !hasPortrait && !hasChallengeRating && !hasAbilityScores && !hasAppearanceColors && !hasBodyParts && !hasAppendages && !hasHitPoints && !hasNaturalArmorClass && !hasSavingThrowBonuses && !hasAlignment && !hasFaction && !hasTemplateResRef && !hasSpecialIdentityStrings && !hasScripts && !hasLocalizedStrings &&
+        (!hasTag && !hasConversation && !hasInterruptable && !hasAdvancedFlags && !hasBodyBag && !hasDecayTime && !hasAppearance && !hasGender && !hasPerceptionRange && !hasWalkRate && !hasSoundSetFile && !hasStartingPackage && !hasSkillList && !hasFeatList && !hasSpecialAbilityList && !hasVariables && !hasEditorComment && !hasClassLevels && !hasClassIdentity && !hasClassSlotResize && !hasClassSpellClear && !hasClassSpellRemoval && !hasClassSpellReorder && !hasClassSpellReplacement && !hasPhenotype && !hasPortrait && !hasChallengeRating && !hasAbilityScores && !hasAppearanceColors && !hasBodyParts && !hasAppendages && !hasHitPoints && !hasNaturalArmorClass && !hasSavingThrowBonuses && !hasAlignment && !hasFaction && !hasTemplateResRef && !hasSpecialIdentityStrings && !hasScripts && !hasLocalizedStrings &&
           !hasInventory && !hasEquipment)
       ) {
         throw invalid("A Creature property mutation requires an exact Tag, Conversation, Interruptable, advanced flag, BodyBag, DecayTime, Appearance, FactionID, TemplateResRef, Subrace, Deity, script, name, ItemList, or Equip_ItemList pair.", [
@@ -2414,6 +2513,34 @@ function planPropertyMutations(
         throw invalid(
           "Creature class-slot resize owns ClassList and StartingPackage exclusively.",
           [mutation.sourceObjectId, "field=ClassList", "coupling=resize_conflict"],
+        );
+      }
+      if (hasClassSpellClear &&
+        (hasClassLevels || hasClassIdentity || hasClassSlotResize || hasClassSpellRemoval || hasClassSpellReorder || hasClassSpellReplacement)) {
+        throw invalid(
+          "Creature class spell-list clear owns ClassList exclusively.",
+          [mutation.sourceObjectId, "field=ClassList", "coupling=spell_clear_conflict"],
+        );
+      }
+      if (hasClassSpellRemoval &&
+        (hasClassLevels || hasClassIdentity || hasClassSlotResize || hasClassSpellClear || hasClassSpellReorder || hasClassSpellReplacement)) {
+        throw invalid(
+          "Creature class spell-entry removal owns ClassList exclusively.",
+          [mutation.sourceObjectId, "field=ClassList", "coupling=spell_removal_conflict"],
+        );
+      }
+      if (hasClassSpellReorder &&
+        (hasClassLevels || hasClassIdentity || hasClassSlotResize || hasClassSpellClear || hasClassSpellRemoval || hasClassSpellReplacement)) {
+        throw invalid(
+          "Creature class spell-entry reorder owns ClassList exclusively.",
+          [mutation.sourceObjectId, "field=ClassList", "coupling=spell_reorder_conflict"],
+        );
+      }
+      if (hasClassSpellReplacement &&
+        (hasClassLevels || hasClassIdentity || hasClassSlotResize || hasClassSpellClear || hasClassSpellRemoval || hasClassSpellReorder)) {
+        throw invalid(
+          "Creature class spell-entry replacement owns ClassList exclusively.",
+          [mutation.sourceObjectId, "field=ClassList", "coupling=spell_replacement_conflict"],
         );
       }
       if (!Number.isSafeInteger(mutation.sourceIndex) || mutation.sourceIndex < 0) {
@@ -2497,6 +2624,38 @@ function planPropertyMutations(
             source.placement.creatureClassIdentityState,
             source.placement.creatureStartingPackage,
             rawMutation.classSlotResize,
+          )
+        : undefined;
+      const classSpellClear = hasClassSpellClear
+        ? planCreatureClassSpellClearMutation(
+            mutation.sourceObjectId,
+            source.sourceIndex,
+            source.placement.creatureClassIdentityState,
+            rawMutation.classSpellClear,
+          )
+        : undefined;
+      const classSpellRemoval = hasClassSpellRemoval
+        ? planCreatureClassSpellRemovalMutation(
+            mutation.sourceObjectId,
+            source.sourceIndex,
+            source.placement.creatureClassIdentityState,
+            rawMutation.classSpellRemoval,
+          )
+        : undefined;
+      const classSpellReorder = hasClassSpellReorder
+        ? planCreatureClassSpellReorderMutation(
+            mutation.sourceObjectId,
+            source.sourceIndex,
+            source.placement.creatureClassIdentityState,
+            rawMutation.classSpellReorder,
+          )
+        : undefined;
+      const classSpellReplacement = hasClassSpellReplacement
+        ? planCreatureClassSpellReplacementMutation(
+            mutation.sourceObjectId,
+            source.sourceIndex,
+            source.placement.creatureClassIdentityState,
+            rawMutation.classSpellReplacement,
           )
         : undefined;
       const classLevelTarget = classLevels ??
@@ -2742,6 +2901,10 @@ function planPropertyMutations(
         ...(classLevels ? { classLevels } : {}),
         ...(classIdentity ? { classIdentity } : {}),
         ...(classSlotResize ? { classSlotResize } : {}),
+        ...(classSpellClear ? { classSpellClear } : {}),
+        ...(classSpellRemoval ? { classSpellRemoval } : {}),
+        ...(classSpellReorder ? { classSpellReorder } : {}),
+        ...(classSpellReplacement ? { classSpellReplacement } : {}),
         ...(hasPhenotype
           ? {
               phenotype: planCreaturePhenotypeMutation(
@@ -3841,6 +4004,175 @@ function planCreatureClassIdentityMutation(
   return mutation;
 }
 
+function planCreatureClassSpellClearMutation(
+  sourceObjectId: string,
+  sourceIndex: number,
+  storage: AreaCreatureClassIdentityState | undefined,
+  input: unknown,
+): ExistingAreaCreatureClassSpellClearMutation {
+  const mutation = readExistingAreaCreatureClassSpellClearMutation(input);
+  if (!mutation) {
+    throw invalid("Creature class spell-list clear mutation is invalid.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList invalid_spell_clear",
+    ]);
+  }
+  const source = readAreaCreatureClassIdentityState(storage);
+  if (!source?.present ||
+    mutation.classListGraphSha256 !== source.classListGraphSha256 ||
+    mutation.expectedClassIds.length !== source.entries.length ||
+    mutation.expectedClassIds.some((classId, index) =>
+      classId !== source.entries[index]!.classId) ||
+    mutation.expectedLevels.some((level, index) =>
+      level !== source.entries[index]!.level)) {
+    throw invalid("Creature class spell-list clear source graph is stale.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList stale_spell_clear_graph",
+    ]);
+  }
+  if (mutation.classSlotIndices.some((slotIndex) =>
+    source.entries[slotIndex]!.canonicalSpellListFieldCount === 0)) {
+    throw invalid("Creature class spell-list clear target contains no canonical spell lists.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList empty_spell_clear_target",
+    ]);
+  }
+  return mutation;
+}
+
+function planCreatureClassSpellRemovalMutation(
+  sourceObjectId: string,
+  sourceIndex: number,
+  storage: AreaCreatureClassIdentityState | undefined,
+  input: unknown,
+): ExistingAreaCreatureClassSpellRemovalMutation {
+  const mutation = readExistingAreaCreatureClassSpellRemovalMutation(input);
+  if (!mutation) {
+    throw invalid("Creature class spell-entry removal mutation is invalid.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList invalid_spell_removal",
+    ]);
+  }
+  const source = readAreaCreatureClassIdentityState(storage);
+  if (!source?.present || source.entries.some((entry) => !entry.spellLists) ||
+    mutation.classListGraphSha256 !== source.classListGraphSha256 ||
+    mutation.expectedClassIds.length !== source.entries.length ||
+    mutation.expectedClassIds.some((classId, index) =>
+      classId !== source.entries[index]!.classId) ||
+    mutation.expectedLevels.some((level, index) =>
+      level !== source.entries[index]!.level)) {
+    throw invalid("Creature class spell-entry removal source graph is stale.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList stale_spell_removal_graph",
+    ]);
+  }
+  for (const target of mutation.targets) {
+    const list = source.entries[target.classSlotIndex]!.spellLists!.find((candidate) =>
+      candidate.listKind === target.listKind && candidate.spellLevel === target.spellLevel);
+    if (!list || target.entryIndex >= list.entries.length) {
+      throw invalid("Creature class spell-entry removal target is absent.", [
+        sourceObjectId,
+        `ordinal=${sourceIndex}`,
+        "ClassList absent_spell_removal_target",
+      ]);
+    }
+  }
+  return mutation;
+}
+
+function planCreatureClassSpellReorderMutation(
+  sourceObjectId: string,
+  sourceIndex: number,
+  storage: AreaCreatureClassIdentityState | undefined,
+  input: unknown,
+): ExistingAreaCreatureClassSpellReorderMutation {
+  const mutation = readExistingAreaCreatureClassSpellReorderMutation(input);
+  if (!mutation) {
+    throw invalid("Creature class spell-entry reorder mutation is invalid.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList invalid_spell_reorder",
+    ]);
+  }
+  const source = readAreaCreatureClassIdentityState(storage);
+  if (!source?.present || source.entries.some((entry) => !entry.spellLists) ||
+    mutation.classListGraphSha256 !== source.classListGraphSha256 ||
+    mutation.expectedClassIds.length !== source.entries.length ||
+    mutation.expectedClassIds.some((classId, index) =>
+      classId !== source.entries[index]!.classId) ||
+    mutation.expectedLevels.some((level, index) =>
+      level !== source.entries[index]!.level)) {
+    throw invalid("Creature class spell-entry reorder source graph is stale.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList stale_spell_reorder_graph",
+    ]);
+  }
+  for (const target of mutation.reorders) {
+    const list = source.entries[target.classSlotIndex]!.spellLists!.find((candidate) =>
+      candidate.listKind === target.listKind && candidate.spellLevel === target.spellLevel);
+    if (!list || list.entries.length < 2 ||
+      target.entryOrder.length !== list.entries.length) {
+      throw invalid("Creature class spell-entry reorder target is absent or stale.", [
+        sourceObjectId,
+        `ordinal=${sourceIndex}`,
+        "ClassList absent_spell_reorder_target",
+      ]);
+    }
+  }
+  return mutation;
+}
+
+function planCreatureClassSpellReplacementMutation(
+  sourceObjectId: string,
+  sourceIndex: number,
+  storage: AreaCreatureClassIdentityState | undefined,
+  input: unknown,
+): ExistingAreaCreatureClassSpellReplacementMutation {
+  const mutation = readExistingAreaCreatureClassSpellReplacementMutation(input);
+  if (!mutation) {
+    throw invalid("Creature class spell-entry replacement mutation is invalid.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList invalid_spell_replacement",
+    ]);
+  }
+  const source = readAreaCreatureClassIdentityState(storage);
+  if (!source?.present || source.entries.some((entry) => !entry.spellLists) ||
+    mutation.classListGraphSha256 !== source.classListGraphSha256 ||
+    mutation.expectedClassIds.length !== source.entries.length ||
+    mutation.expectedClassIds.some((classId, index) =>
+      classId !== source.entries[index]!.classId) ||
+    mutation.expectedLevels.some((level, index) =>
+      level !== source.entries[index]!.level)) {
+    throw invalid("Creature class spell-entry replacement source graph is stale.", [
+      sourceObjectId,
+      `ordinal=${sourceIndex}`,
+      "ClassList stale_spell_replacement_graph",
+    ]);
+  }
+  for (const replacement of mutation.replacements) {
+    const list = source.entries[replacement.classSlotIndex]!.spellLists!.find((candidate) =>
+      candidate.listKind === replacement.listKind &&
+      candidate.spellLevel === replacement.spellLevel);
+    const entry = list?.entries[replacement.entryIndex];
+    if (!entry || entry.spellId !== replacement.expectedSpellId ||
+      entry.spellMetaMagic !== 0) {
+      throw invalid("Creature class spell-entry replacement target is absent or stale.", [
+        sourceObjectId,
+        `ordinal=${sourceIndex}`,
+        "ClassList absent_spell_replacement_target",
+      ]);
+    }
+  }
+  return mutation;
+}
+
 function planCreatureClassSlotResizeMutation(
   sourceObjectId: string,
   sourceIndex: number,
@@ -4374,6 +4706,34 @@ function planCreatureNameLocalizedStringMutations(
     const mapping = AREA_CREATURE_NAME_LOCALIZED_STRING_MUTATION_FIELDS.find(
       (candidate) => candidate.field === mutation.field,
     )!;
+    if (mutation.expectedEntries && mutation.expectedProfile) {
+      const actualStorage = source
+        ? readEditableAreaCreatureLocalizedStringStorage(
+            source[mapping.sourceKey],
+            mapping.maxBytes,
+          )
+        : undefined;
+      if (!actualStorage) {
+        throw invalid("The exact source Creature localized string is outside the admitted profile.", [
+          sourceObjectId,
+          `${mutation.field} unsupported_source`,
+        ]);
+      }
+      if (
+        actualStorage.value !== mutation.expectedValue ||
+        actualStorage.profile !== mutation.expectedProfile ||
+        !areaCreatureLocalizedStringEntriesEqual(
+          actualStorage.entries,
+          mutation.expectedEntries,
+        )
+      ) {
+        throw invalid("The exact source Creature localized string differs from immutable provenance.", [
+          sourceObjectId,
+          `${mutation.field} stale_source`,
+        ]);
+      }
+      continue;
+    }
     const actual = source
       ? readAreaCreatureNameInlineAsciiStorage(source[mapping.sourceKey], mapping.maxBytes)
       : undefined;
@@ -4410,6 +4770,34 @@ function planPlaceableLocalizedStringMutations(
     const mapping = AREA_PLACEABLE_LOCALIZED_STRING_MUTATION_FIELDS.find(
       (candidate) => candidate.field === mutation.field,
     )!;
+    if (mutation.expectedEntries && mutation.expectedProfile) {
+      const actualStorage = source
+        ? readEditableAreaPlaceableLocalizedStringStorage(
+            source[mapping.sourceKey],
+            mapping.maxBytes,
+          )
+        : undefined;
+      if (!actualStorage) {
+        throw invalid("The exact source Placeable localized string is outside the admitted profile.", [
+          sourceObjectId,
+          `${mutation.field} unsupported_source`,
+        ]);
+      }
+      if (
+        actualStorage.value !== mutation.expectedValue ||
+        actualStorage.profile !== mutation.expectedProfile ||
+        !areaPlaceableLocalizedStringEntriesEqual(
+          actualStorage.entries,
+          mutation.expectedEntries,
+        )
+      ) {
+        throw invalid("The exact source Placeable localized string differs from immutable provenance.", [
+          sourceObjectId,
+          `${mutation.field} stale_source`,
+        ]);
+      }
+      continue;
+    }
     const actual = source
       ? readAreaPlaceableInlineAsciiStorage(source[mapping.sourceKey], mapping.maxBytes)
       : undefined;
@@ -4869,6 +5257,38 @@ function planWaypointVariableMutation(
     mutation.expectedEntries,
   )) {
     throw invalid("The exact source Waypoint VarTable differs from immutable provenance.", [
+      sourceObjectId,
+      "VarTable stale",
+    ]);
+  }
+  return mutation;
+}
+
+function planTriggerVariableMutation(
+  sourceObjectId: string,
+  actualInput: ParsedAreaPlacementBlueprint["triggerVariables"],
+  input: unknown,
+): ExistingAreaTriggerVariableMutation {
+  let mutation: ExistingAreaTriggerVariableMutation;
+  try {
+    mutation = parseAreaTriggerVariableMutation(input);
+  } catch (error) {
+    throw invalid("A Trigger VarTable mutation pair is invalid.", [
+      sourceObjectId,
+      error instanceof Error ? error.message : "VarTable invalid_pair",
+    ]);
+  }
+  if (!actualInput) {
+    throw invalid("The exact source Trigger VarTable is outside the admitted profile.", [
+      sourceObjectId,
+      "VarTable malformed_or_unsupported",
+    ]);
+  }
+  if (!areaTriggerVariableSourceEntriesEqual(
+    actualInput.expectedEntries,
+    mutation.expectedEntries,
+  )) {
+    throw invalid("The exact source Trigger VarTable differs from immutable provenance.", [
       sourceObjectId,
       "VarTable stale",
     ]);
@@ -6179,6 +6599,60 @@ function planTriggerTransitionStorageMutation(
   return mutation;
 }
 
+function planTriggerCorePropertiesMutation(
+  sourceObjectId: string,
+  actualInput: ParsedAreaPlacementBlueprint["triggerCoreProperties"],
+  input: unknown,
+): ExistingAreaTriggerCorePropertiesMutation {
+  const mutation = readExistingAreaTriggerCorePropertiesMutation(input);
+  if (!mutation) {
+    throw invalid(
+      "Trigger core-properties mutation requires one complete changed exact CAS tuple.",
+      [sourceObjectId, "coreProperties invalid_tuple"],
+    );
+  }
+  if (!isAreaTriggerCoreProperties(actualInput)) {
+    throw invalid(
+      "Trigger core-properties mutation requires one exact native GIT storage tuple.",
+      [sourceObjectId, "coreProperties missing_or_noncanonical"],
+    );
+  }
+  if (!areaTriggerCorePropertiesEqual(actualInput, mutation.expectedValue)) {
+    throw invalid(
+      "The retained Trigger core-properties provenance differs from the exact source GIT.",
+      [sourceObjectId, "coreProperties stale"],
+    );
+  }
+  return mutation;
+}
+
+function planTriggerTrapPropertiesMutation(
+  sourceObjectId: string,
+  actualInput: ParsedAreaPlacementBlueprint["triggerTrapProperties"],
+  input: unknown,
+): ExistingAreaTriggerTrapPropertiesMutation {
+  const mutation = readExistingAreaTriggerTrapPropertiesMutation(input);
+  if (!mutation) {
+    throw invalid(
+      "Trigger trap-properties mutation requires one complete changed exact CAS tuple.",
+      [sourceObjectId, "trapProperties invalid_tuple"],
+    );
+  }
+  if (!isAreaTriggerTrapProperties(actualInput)) {
+    throw invalid(
+      "Trigger trap-properties mutation requires one exact native GIT storage tuple.",
+      [sourceObjectId, "trapProperties missing_or_noncanonical"],
+    );
+  }
+  if (!areaTriggerTrapPropertiesEqual(actualInput, mutation.expectedValue)) {
+    throw invalid(
+      "The retained Trigger trap-properties provenance differs from the exact source GIT.",
+      [sourceObjectId, "trapProperties stale"],
+    );
+  }
+  return mutation;
+}
+
 function planEncounterFactionMutation(
   sourceObjectId: string,
   actualInput: ParsedAreaPlacementBlueprint["encounterFaction"],
@@ -6346,6 +6820,29 @@ function planItemLocalizedStringMutations(
     const mapping = AREA_ITEM_LOCALIZED_STRING_MUTATION_FIELDS.find(
       (candidate) => candidate.field === mutation.field,
     )!;
+    if (mutation.expectedEntries && mutation.expectedProfile) {
+      const storage = readEditableAreaItemLocalizedStringStorage(
+        actual[mapping.sourceKey],
+        mapping.maxBytes,
+      );
+      if (!storage) {
+        throw invalid("Item localized-string source is outside the admitted profile.", [
+          sourceObjectId,
+          `${mutation.field} unsupported_source`,
+        ]);
+      }
+      if (
+        storage.value !== mutation.expectedValue ||
+        storage.profile !== mutation.expectedProfile ||
+        !areaItemLocalizedStringEntriesEqual(storage.entries, mutation.expectedEntries)
+      ) {
+        throw invalid("Item localized-string expected value differs from exact source GIT.", [
+          sourceObjectId,
+          `${mutation.field} stale_source`,
+        ]);
+      }
+      continue;
+    }
     const value = readAreaItemInlineAsciiStorage(
       actual[mapping.sourceKey],
       mapping.maxBytes,

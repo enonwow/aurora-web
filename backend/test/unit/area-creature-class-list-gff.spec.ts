@@ -1,5 +1,8 @@
 import {
   analyzeAreaCreatureClassListField,
+  clearAreaCreatureClassSpellLists,
+  reorderAreaCreatureClassSpellEntries,
+  replaceAreaCreatureClassSpellEntries,
   replaceAreaCreatureClassIdsAndClearSpellLists,
   resizeAreaCreatureClassListTail,
 } from "../../src/modules/areas/adapters/outbound/blob/area-creature-class-list-gff";
@@ -88,6 +91,173 @@ describe("exact Creature ClassList GFF graph", () => {
       { label: "OpaqueClass", type: "cexostring", value: "keep" },
     ]);
     expect(target.value[1]?.fields).toEqual((field.type === "list" ? field.value[1]?.fields : []));
+  });
+
+  it("clears canonical spell lists only from selected unchanged class slots", () => {
+    const target = clearAreaCreatureClassSpellLists(field, [1, 9], [3, 2], [0]);
+    expect(target?.type).toBe("list");
+    if (!target || target.type !== "list" || field.type !== "list") return;
+    expect(target.value[0]?.fields).toEqual([
+      { label: "Class", type: "int", value: 1 },
+      { label: "ClassLevel", type: "short", value: 3 },
+      { label: "OpaqueClass", type: "cexostring", value: "keep" },
+    ]);
+    expect(target.value[1]).toEqual(field.value[1]);
+  });
+
+  it("reorders exact spell structs inside one canonical list and preserves every sibling", () => {
+    const source = structuredClone(field) as SupportedGffField;
+    if (source.type !== "list") return;
+    const list = source.value[0]?.fields.find((candidate) => candidate.label === "KnownList0");
+    if (!list || list.type !== "list") return;
+    list.value.push(
+      {
+        typeId: 3,
+        fields: [
+          { label: "Spell", type: "word", value: 42 },
+          { label: "SpellMetaMagic", type: "byte", value: 8 },
+          { label: "SpellFlags", type: "byte", value: 1 },
+          { label: "SecondOpaque", type: "cexostring", value: "two" },
+        ],
+      },
+      {
+        typeId: 3,
+        fields: [
+          { label: "Spell", type: "word", value: 99 },
+          { label: "SpellMetaMagic", type: "byte", value: 0 },
+          { label: "SpellFlags", type: "byte", value: 3 },
+          { label: "ThirdOpaque", type: "void", value: Buffer.from([1, 2, 3]) },
+        ],
+      },
+    );
+    const original = [...list.value];
+    const target = reorderAreaCreatureClassSpellEntries(source, [1, 9], [3, 2], [{
+      classSlotIndex: 0,
+      listKind: "known",
+      spellLevel: 0,
+      entryOrder: [2, 0, 1],
+    }]);
+    expect(target?.type).toBe("list");
+    if (!target || target.type !== "list") return;
+    const reordered = target.value[0]?.fields.find((candidate) =>
+      candidate.label === "KnownList0");
+    expect(reordered).toEqual({
+      label: "KnownList0",
+      type: "list",
+      value: [original[2], original[0], original[1]],
+    });
+    expect(target.value[0]?.fields.filter((candidate) => candidate.label !== "KnownList0"))
+      .toEqual(source.value[0]?.fields.filter((candidate) => candidate.label !== "KnownList0"));
+    expect(target.value[1]).toEqual(source.value[1]);
+  });
+
+  it.each([
+    [[9, 1], [3, 2], [2, 0, 1]],
+    [[1, 9], [2, 3], [2, 0, 1]],
+    [[1, 9], [3, 2], [0, 1, 2]],
+    [[1, 9], [3, 2], [2, 0]],
+    [[1, 9], [3, 2], [2, 0, 0]],
+  ])("rejects a stale or invalid exact spell reorder %#", (
+    expectedClassIds,
+    expectedLevels,
+    entryOrder,
+  ) => {
+    const source = structuredClone(field) as SupportedGffField;
+    if (source.type !== "list") return;
+    const list = source.value[0]?.fields.find((candidate) => candidate.label === "KnownList0");
+    if (!list || list.type !== "list") return;
+    list.value.push(
+      { typeId: 3, fields: [
+        { label: "Spell", type: "word", value: 42 },
+        { label: "SpellMetaMagic", type: "byte", value: 0 },
+        { label: "SpellFlags", type: "byte", value: 1 },
+      ] },
+      { typeId: 3, fields: [
+        { label: "Spell", type: "word", value: 99 },
+        { label: "SpellMetaMagic", type: "byte", value: 0 },
+        { label: "SpellFlags", type: "byte", value: 1 },
+      ] },
+    );
+    expect(reorderAreaCreatureClassSpellEntries(source, expectedClassIds, expectedLevels, [{
+      classSlotIndex: 0,
+      listKind: "known",
+      spellLevel: 0,
+      entryOrder,
+    }])).toBeNull();
+  });
+
+  it("replaces only an exact existing Spell Word and preserves its struct siblings", () => {
+    const source = structuredClone(field) as SupportedGffField;
+    if (source.type !== "list") throw new Error("Expected ClassList fixture.");
+    const classEntry = source.value[0]!;
+    const list = classEntry.fields.find((field) => field.label === "KnownList0");
+    if (list?.type !== "list") throw new Error("Expected KnownList0 fixture.");
+    list.value.push({
+      typeId: 3,
+      fields: [
+        { label: "Spell", type: "word", value: 99 },
+        { label: "SpellMetaMagic", type: "byte", value: 0 },
+        { label: "SpellFlags", type: "byte", value: 3 },
+        { label: "Opaque", type: "void", value: Buffer.from([1, 2, 3]) },
+      ],
+    });
+
+    const target = replaceAreaCreatureClassSpellEntries(source, [1, 9], [3, 2], [{
+      classSlotIndex: 0,
+      listKind: "known",
+      spellLevel: 0,
+      entryIndex: list.value.length - 1,
+      expectedSpellId: 99,
+      targetSpellId: 100,
+    }]);
+    expect(target?.type).toBe("list");
+    if (target?.type !== "list") throw new Error("Expected rewritten ClassList.");
+    const targetList = target.value[0]!.fields.find((field) => field.label === "KnownList0");
+    if (targetList?.type !== "list") throw new Error("Expected rewritten KnownList0.");
+    expect(targetList.value).toHaveLength(list.value.length);
+    expect(targetList.value.at(-1)).toEqual({
+      typeId: 3,
+      fields: [
+        { label: "Spell", type: "word", value: 100 },
+        { label: "SpellMetaMagic", type: "byte", value: 0 },
+        { label: "SpellFlags", type: "byte", value: 3 },
+        { label: "Opaque", type: "void", value: Buffer.from([1, 2, 3]) },
+      ],
+    });
+    expect(list.value.at(-1)?.fields[0]).toEqual({ label: "Spell", type: "word", value: 99 });
+  });
+
+  it.each([
+    { listKind: "known", spellLevel: 0, entryIndex: 99, expectedSpellId: 99, targetSpellId: 100 },
+    { listKind: "known", spellLevel: 0, entryIndex: 0, expectedSpellId: 999, targetSpellId: 100 },
+    { listKind: "known", spellLevel: 0, entryIndex: 0, expectedSpellId: 12, targetSpellId: 12 },
+  ])("rejects absent, stale, or unchanged spell replacement %#", (replacement) => {
+    expect(replaceAreaCreatureClassSpellEntries(
+      structuredClone(field) as SupportedGffField,
+      [1, 9],
+      [3, 2],
+      [{ classSlotIndex: 0, ...replacement } as never],
+    )).toBeNull();
+  });
+
+  it.each([
+    [[9, 1], [3, 2], [0]],
+    [[1, 9], [2, 3], [0]],
+    [[1, 9], [3, 2], []],
+    [[1, 9], [3, 2], [1]],
+    [[1, 9], [3, 2], [0, 0]],
+    [[1, 9], [3, 2], [2]],
+  ])("rejects a stale, empty, duplicate, or no-op spell clear %#", (
+    expectedClassIds,
+    expectedLevels,
+    classSlotIndices,
+  ) => {
+    expect(clearAreaCreatureClassSpellLists(
+      field,
+      expectedClassIds,
+      expectedLevels,
+      classSlotIndices,
+    )).toBeNull();
   });
 
   it("appends canonical empty-spell tail slots while preserving the retained graph", () => {

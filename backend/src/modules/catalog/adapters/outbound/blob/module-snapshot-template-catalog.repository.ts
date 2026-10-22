@@ -190,6 +190,11 @@ import {
   type EffectiveCreatureSpecialAbilitiesTwoDaTable,
 } from "../../../domain/effective-creature-special-abilities-two-da";
 import {
+  localizeEffectiveCreatureClassSpellsTwoDa,
+  parseEffectiveCreatureClassSpellsTwoDa,
+  type EffectiveCreatureClassSpellsTwoDaTable,
+} from "../../../domain/effective-creature-class-spells-two-da";
+import {
   AREA_AUDIO_ENVIRONMENT_CATALOGS_SCHEMA_VERSION,
   buildEffectiveAreaAudioCatalog,
   isExactEffectiveAreaAudioCatalogBundle,
@@ -414,6 +419,7 @@ interface SnapshotIndex {
   effectiveCreatureFeatsTwoDa: EffectiveCreatureFeatsTwoDaTable | null;
   effectiveCreatureSpecialAbilitiesTwoDa:
     EffectiveCreatureSpecialAbilitiesTwoDaTable | null;
+  effectiveCreatureClassSpellsTwoDa: EffectiveCreatureClassSpellsTwoDaTable | null;
   effectiveAreaAudioCatalogs: EffectiveAreaAudioCatalogBundle | null;
   effectiveAreaVisualEnvironmentCatalogs: EffectiveAreaVisualEnvironmentCatalogBundle | null;
   effectiveAreaLoadingScreenCatalog: EffectiveAreaLoadingScreenCatalog | null;
@@ -2041,6 +2047,16 @@ export class ModuleSnapshotTemplateCatalogRepository
     };
   }
 
+  async resolveEffectiveCreatureClassSpellsTwoDaTable() {
+    const table = (await this.getSnapshotIndex())?.effectiveCreatureClassSpellsTwoDa;
+    if (!table) return null;
+    return {
+      descriptor: { ...table.descriptor },
+      classesDescriptor: { ...table.classesDescriptor },
+      rows: table.rows.map((row) => ({ ...row })),
+    };
+  }
+
   async resolveEffectiveAreaAudioCatalogs() {
     const catalogs = (await this.getSnapshotIndex())?.effectiveAreaAudioCatalogs;
     if (!catalogs) return null;
@@ -2510,6 +2526,28 @@ export class ModuleSnapshotTemplateCatalogRepository
           rowCount: effectiveCreatureSpecialAbilitiesTwoDa?.descriptor.rowCount ?? 0,
         });
       }
+      let effectiveCreatureClassSpellsTwoDa = effectiveCreatureClassesTwoDa
+        ? await this.loadEffectiveCreatureClassSpellsTwoDa(
+            settings,
+            snapshot.objects,
+            effectiveCreatureClassesTwoDa,
+          )
+        : null;
+      logIndexStage("loadEffectiveCreatureClassSpellsTwoDa", {
+        rowCount: effectiveCreatureClassSpellsTwoDa?.descriptor.rowCount ?? 0,
+        admittedEntryCount: effectiveCreatureClassSpellsTwoDa?.rows.length ?? 0,
+      });
+      if (effectiveCreatureClassSpellsTwoDa === undefined &&
+        this.runtimeSettingsApplicationService && effectiveCreatureClassesTwoDa) {
+        effectiveCreatureClassSpellsTwoDa =
+          await this.loadRuntimeEffectiveCreatureClassSpellsTwoDa(
+            effectiveCreatureClassesTwoDa,
+          );
+        logIndexStage("loadRuntimeEffectiveCreatureClassSpellsTwoDa", {
+          rowCount: effectiveCreatureClassSpellsTwoDa?.descriptor.rowCount ?? 0,
+          admittedEntryCount: effectiveCreatureClassSpellsTwoDa?.rows.length ?? 0,
+        });
+      }
       const effectiveAreaAudioTables = await this.loadEffectiveAreaAudioTables(
         settings,
         snapshot.objects,
@@ -2975,6 +3013,12 @@ export class ModuleSnapshotTemplateCatalogRepository
             (strRef) => templateTalkTableLookup.resolve(strRef)?.text,
           )
         : effectiveCreatureSpecialAbilitiesTwoDa;
+      effectiveCreatureClassSpellsTwoDa = effectiveCreatureClassSpellsTwoDa
+        ? localizeEffectiveCreatureClassSpellsTwoDa(
+            effectiveCreatureClassSpellsTwoDa,
+            (strRef) => templateTalkTableLookup.resolve(strRef)?.text,
+          )
+        : effectiveCreatureClassSpellsTwoDa;
       const effectiveTrapsTwoDaRows = buildEffectiveTrapsTwoDaRowOptions(
         effectiveTrapsTwoDa?.rows ?? [],
         (strRef) => templateTalkTableLookup.resolve(strRef)?.text,
@@ -3204,6 +3248,7 @@ export class ModuleSnapshotTemplateCatalogRepository
         effectiveCreatureFeatsTwoDa: effectiveCreatureFeatsTwoDa ?? null,
         effectiveCreatureSpecialAbilitiesTwoDa:
           effectiveCreatureSpecialAbilitiesTwoDa ?? null,
+        effectiveCreatureClassSpellsTwoDa: effectiveCreatureClassSpellsTwoDa ?? null,
         effectiveAreaAudioCatalogs,
         effectiveAreaVisualEnvironmentCatalogs,
         effectiveAreaLoadingScreenCatalog,
@@ -3399,6 +3444,7 @@ export class ModuleSnapshotTemplateCatalogRepository
       effectiveCreatureFeatsTwoDa: effectiveCreatureFeatsTwoDa ?? null,
       effectiveCreatureSpecialAbilitiesTwoDa:
         effectiveCreatureSpecialAbilitiesTwoDa ?? null,
+      effectiveCreatureClassSpellsTwoDa: effectiveCreatureClassSpellsTwoDa ?? null,
       effectiveAreaAudioCatalogs,
       effectiveAreaVisualEnvironmentCatalogs,
       effectiveAreaLoadingScreenCatalog,
@@ -4343,6 +4389,65 @@ export class ModuleSnapshotTemplateCatalogRepository
     return source.includeVanilla
       ? readRuntimeEffectiveCreatureSpecialAbilitiesTwoDaFromVanilla(
           settings.paths.vanillaDataPath,
+          this.logger,
+        )
+      : null;
+  }
+
+  private async loadEffectiveCreatureClassSpellsTwoDa(
+    settings: RuntimeSettingsRecord,
+    objects: ModuleBlobObjectSummary[],
+    classesTable: EffectiveCreatureClassesTwoDaTable,
+  ): Promise<EffectiveCreatureClassSpellsTwoDaTable | null | undefined> {
+    const resolvedHakSettings = this.runtimeSettingsApplicationService
+      ? await this.runtimeSettingsApplicationService.getResolvedHakSettings()
+      : null;
+    const keys = collectCreatureEffectiveTwoDaKeys(
+      objects,
+      settings,
+      "spells.2da",
+      resolvedHakSettings?.creature.hakPriorityList,
+    );
+    const key = keys[0];
+    if (!key) return undefined;
+    try {
+      const payload = await this.readSnapshotObject(settings.blobStorage, key);
+      if (!payload) return null;
+      const sourceLayer = resolveEffectiveCreatureSpecialAbilitiesSourceLayer(key);
+      return sourceLayer
+        ? parseEffectiveCreatureClassSpellsTwoDa({
+            bytes: payload.bytes,
+            sourceObjectKey: key,
+            sourceLayer,
+            classesTable,
+            resolveStrRef: () => undefined,
+          })
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async loadRuntimeEffectiveCreatureClassSpellsTwoDa(
+    classesTable: EffectiveCreatureClassesTwoDaTable,
+  ): Promise<EffectiveCreatureClassSpellsTwoDaTable | null> {
+    const service = this.runtimeSettingsApplicationService;
+    if (!service) return null;
+    const settings = await service.getRuntimeSettings();
+    const source = settings.sources.creature ?? settings.sources.placeable;
+    if (source.includeHaks) {
+      const resolvedHakSettings = await service.getResolvedHakSettings();
+      const hakTable = await readRuntimeEffectiveCreatureClassSpellsTwoDaFromHakPaths(
+        resolvedHakSettings.creature.hakPaths,
+        classesTable,
+        this.logger,
+      );
+      if (hakTable !== undefined) return hakTable;
+    }
+    return source.includeVanilla
+      ? readRuntimeEffectiveCreatureClassSpellsTwoDaFromVanilla(
+          settings.paths.vanillaDataPath,
+          classesTable,
           this.logger,
         )
       : null;
@@ -6971,6 +7076,40 @@ async function readRuntimeEffectiveCreatureSpecialAbilitiesTwoDaFromHakPaths(
   return undefined;
 }
 
+async function readRuntimeEffectiveCreatureClassSpellsTwoDaFromHakPaths(
+  hakPaths: string[],
+  classesTable: EffectiveCreatureClassesTwoDaTable,
+  logger: Logger,
+): Promise<EffectiveCreatureClassSpellsTwoDaTable | null | undefined> {
+  for (const hakPath of deduplicateRuntimeSourcePaths(hakPaths)) {
+    try {
+      const bytes = await readNwnErfResource(
+        hakPath,
+        "spells",
+        NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+      );
+      if (!bytes) continue;
+      const sourceObjectKey = buildRuntimeHakCreatureTwoDaSourceKey(
+        hakPath,
+        "spells.2da",
+      );
+      return parseEffectiveCreatureClassSpellsTwoDa({
+        bytes,
+        sourceObjectKey,
+        sourceLayer: "hak",
+        classesTable,
+        resolveStrRef: () => undefined,
+      });
+    } catch (error) {
+      logger.warn(
+        `Effective Creature class spells.2da HAK lookup failed closed (${hakPath}): ${formatSnapshotIndexError(error)}`,
+      );
+      return null;
+    }
+  }
+  return undefined;
+}
+
 async function readRuntimeEffectiveCreaturePhenotypeTwoDaSourceFromHakPaths(
   hakPaths: string[],
   logger: Logger,
@@ -7877,6 +8016,40 @@ async function readRuntimeEffectiveCreatureSpecialAbilitiesTwoDaFromVanilla(
     } catch (error) {
       logger.warn(
         `Effective Creature spells.2da vanilla lookup failed closed (${keyPath}): ${formatSnapshotIndexError(error)}`,
+      );
+      return null;
+    }
+  }
+  return null;
+}
+
+async function readRuntimeEffectiveCreatureClassSpellsTwoDaFromVanilla(
+  vanillaRoot: string,
+  classesTable: EffectiveCreatureClassesTwoDaTable,
+  logger: Logger,
+): Promise<EffectiveCreatureClassSpellsTwoDaTable | null> {
+  for (const keyFileName of VANILLA_KEY_FILE_CANDIDATES) {
+    const keyPath = resolve(vanillaRoot, keyFileName);
+    let reader: NwnKeyBifResourceReader;
+    try {
+      reader = await NwnKeyBifResourceReader.open(keyPath, vanillaRoot);
+    } catch {
+      continue;
+    }
+    try {
+      const bytes = await reader.read("spells", NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA);
+      if (!bytes) continue;
+      const sourceObjectKey = `runtime-source/vanilla/${keyFileName}/spells.2da`;
+      return parseEffectiveCreatureClassSpellsTwoDa({
+        bytes,
+        sourceObjectKey,
+        sourceLayer: "vanilla",
+        classesTable,
+        resolveStrRef: () => undefined,
+      });
+    } catch (error) {
+      logger.warn(
+        `Effective Creature class spells.2da vanilla lookup failed closed (${keyPath}): ${formatSnapshotIndexError(error)}`,
       );
       return null;
     }

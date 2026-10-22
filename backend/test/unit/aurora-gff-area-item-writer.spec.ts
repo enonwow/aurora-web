@@ -44,7 +44,10 @@ describe("Aurora Area ground-Item construction root profile", () => {
       "Comment",
       "CostTable",
       "CostValue",
-      "onused",
+      "OnUsed",
+      "OnHeartbeat",
+      "OnUserDefined",
+      "OnInvDisturbed",
     ]));
     expect(fields.find((field) => field.label === "PropertiesList")).toMatchObject({
       type: "list",

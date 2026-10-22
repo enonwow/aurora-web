@@ -24,6 +24,8 @@ import {
   materializeAreaObjectPolygonDraftScriptResRefs,
   materializeAreaObjectPolygonDraftTriggerScriptResRefs,
   materializeAreaObjectPolygonDraftTriggerTransitionStorage,
+  materializeAreaObjectPolygonDraftTriggerCoreProperties,
+  materializeAreaObjectPolygonDraftTriggerTrapProperties,
   materializeAreaObjectPolygonDraftTag,
   removeAreaObjectPolygonDraftPoint,
   removeAreaObjectPolygonDraftCreature,
@@ -51,6 +53,8 @@ import {
   updateAreaObjectPolygonDraftScriptResRef,
   updateAreaObjectPolygonDraftTriggerScriptResRef,
   updateAreaObjectPolygonDraftTriggerTransitionStorage,
+  updateAreaObjectPolygonDraftTriggerCoreProperties,
+  updateAreaObjectPolygonDraftTriggerTrapProperties,
   updateAreaObjectPolygonDraftTag,
   updateAreaObjectPolygonDraftPoint,
 } from "../../../../src/modules/areas/application/areaObjectPolygonAuthoring";
@@ -92,6 +96,26 @@ describe("Area object polygon authoring", () => {
         loadScreenId: 7,
       },
       triggerTransitionStorageControlState: "ACTIVE_NOW",
+      triggerCoreProperties: {
+        autoRemoveKey: 0,
+        factionId: 1,
+        cursorId: 2,
+        highlightHeight: 1.5,
+        keyName: " source_key ",
+        portraitId: 3,
+        triggerType: 0,
+      },
+      triggerCorePropertiesControlState: "ACTIVE_NOW",
+      triggerTrapProperties: {
+        trapDetectable: 1,
+        trapDetectDc: 0,
+        trapDisarmable: 1,
+        disarmDc: 15,
+        trapFlag: 0,
+        trapOneShot: 1,
+        trapType: 0,
+      },
+      triggerTrapPropertiesControlState: "ACTIVE_NOW",
       points: [
         { x: "0", y: "0", z: "0" },
         { x: "4", y: "0", z: "0" },
@@ -730,6 +754,70 @@ describe("Area object polygon authoring", () => {
     )).toEqual(target);
   });
 
+  it("edits and materializes exact retained Trigger core properties", () => {
+    const object = polygonObject();
+    const initial = buildAreaObjectPolygonDraft(object)!;
+    const target = {
+      ...object.triggerCoreProperties!,
+      autoRemoveKey: 1 as const,
+      factionId: 2,
+      cursorId: 4,
+      highlightHeight: Math.fround(2.5),
+      keyName: " target_key ",
+      portraitId: 5,
+      triggerType: -1,
+    };
+    const updated = updateAreaObjectPolygonDraftTriggerCoreProperties(
+      initial,
+      object.source,
+      target,
+    );
+    expect(updated.triggerCoreProperties).toEqual(target);
+    expect(updated.triggerCoreProperties).not.toBe(target);
+    expect(updateAreaObjectPolygonDraftTriggerCoreProperties(
+      updated,
+      object.source,
+      { ...target, cursorId: 256 },
+    )).toBe(updated);
+    expect(materializeAreaObjectPolygonDraftTriggerCoreProperties(
+      updated,
+      object.source,
+      object.triggerCoreProperties,
+    )).toEqual(target);
+  });
+
+  it("edits and materializes exact retained Trigger trap properties", () => {
+    const object = polygonObject();
+    const initial = buildAreaObjectPolygonDraft(object)!;
+    const target = {
+      ...object.triggerTrapProperties!,
+      trapDetectable: 0,
+      trapDetectDc: 17,
+      trapDisarmable: 0,
+      disarmDc: 23,
+      trapFlag: 1,
+      trapOneShot: 0,
+      trapType: 7,
+    };
+    const updated = updateAreaObjectPolygonDraftTriggerTrapProperties(
+      initial,
+      object.source,
+      target,
+    );
+    expect(updated.triggerTrapProperties).toEqual(target);
+    expect(updated.triggerTrapProperties).not.toBe(target);
+    expect(updateAreaObjectPolygonDraftTriggerTrapProperties(
+      updated,
+      object.source,
+      { ...target, trapType: 256 },
+    )).toBe(updated);
+    expect(materializeAreaObjectPolygonDraftTriggerTrapProperties(
+      updated,
+      object.source,
+      object.triggerTrapProperties,
+    )).toEqual(target);
+  });
+
   it("edits Encounter Faction only through the exact digest-bound physical catalog", () => {
     const object = encounterPolygonObject();
     const catalog = encounterFactionCatalog();
@@ -952,6 +1040,39 @@ describe("Area object polygon authoring", () => {
       object.encounterProperties?.variables,
     )).toEqual(target);
     expect(object.source?.encounterVariables?.expectedEntries[0]?.name).toBe("counter");
+  });
+
+  it("edits and materializes the exact ordered Trigger VarTable", () => {
+    const object = polygonObject();
+    object.triggerVariables = [
+      { name: "counter", type: "int", value: 1 },
+      { name: "note", type: "string", value: " source " },
+    ];
+    object.source!.triggerVariables = { expectedEntries: [
+      { sourceIndex: 0, name: "counter", type: "int", value: 1 },
+      { sourceIndex: 1, name: "note", type: "string", value: " source " },
+    ] };
+    const initial = buildAreaObjectPolygonDraft(object)!;
+    const target = [
+      { name: "note", type: "string" as const, value: " target " },
+      { name: "counter", type: "int" as const, value: 1 },
+    ];
+    const updated = updateAreaObjectPolygonDraftVariables(
+      initial,
+      object.source,
+      target,
+    );
+
+    expect(initial).toMatchObject({
+      variablesControlState: "ACTIVE_NOW",
+      variables: object.triggerVariables,
+    });
+    expect(updated.variables).toEqual(target);
+    expect(materializeAreaObjectPolygonDraftVariables(
+      updated,
+      object.source,
+      object.triggerVariables,
+    )).toEqual(target);
   });
 
   it("toggles only one retained Encounter CreatureList SingleSpawn flag", () => {
@@ -1201,6 +1322,24 @@ function polygonObject(): SceneObject {
       linkedToFlags: 2,
       loadScreenId: 7,
     },
+    triggerCoreProperties: {
+      autoRemoveKey: 0,
+      factionId: 1,
+      cursorId: 2,
+      highlightHeight: Math.fround(1.5),
+      keyName: " source_key ",
+      portraitId: 3,
+      triggerType: 0,
+    },
+    triggerTrapProperties: {
+      trapDetectable: 1,
+      trapDetectDc: 0,
+      trapDisarmable: 1,
+      disarmDc: 15,
+      trapFlag: 0,
+      trapOneShot: 1,
+      trapType: 0,
+    },
     x: 1,
     y: 2,
     z: 0,
@@ -1244,6 +1383,24 @@ function polygonObject(): SceneObject {
         linkedTo: "east_gate",
         linkedToFlags: 2,
         loadScreenId: 7,
+      },
+      triggerCoreProperties: {
+        autoRemoveKey: 0,
+        factionId: 1,
+        cursorId: 2,
+        highlightHeight: Math.fround(1.5),
+        keyName: " source_key ",
+        portraitId: 3,
+        triggerType: 0,
+      },
+      triggerTrapProperties: {
+        trapDetectable: 1,
+        trapDetectDc: 0,
+        trapDisarmable: 1,
+        disarmDc: 15,
+        trapFlag: 0,
+        trapOneShot: 1,
+        trapType: 0,
       },
       polygonGeometry: polygon([[0, 0, 0], [4, 0, 0], [0, 2, 0]]),
     },

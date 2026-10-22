@@ -39,7 +39,7 @@ describe("capture-vfx-app-route-cdp placeable-lighting proof manifest", () => {
     expect(script).toContain("retailParityAccepted");
     expect(script).toContain("const retailParityAccepted = false");
     expect(script).toContain(
-      "accepted: isAreaPlaceableLightingCapture ? retailParityAccepted : true"
+      "accepted: isAreaPlaceableLightingCapture\n      ? retailParityAccepted\n      : captureIntegrityAccepted"
     );
   });
 

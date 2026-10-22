@@ -1,5 +1,6 @@
 import {
   bindEffectiveCreatureClassesTwoDaToCreatureClassIdentity,
+  bindEffectiveCreatureClassSpellsTwoDaToCreatureClassIdentity,
   readAreaCreatureClassIdentityState,
   readExistingAreaCreatureClassIdentityMutation,
 } from "../../src/modules/areas/domain/area-creature-class-identity";
@@ -48,6 +49,39 @@ describe("Existing Area Creature same-roster class identity clear", () => {
       ],
     });
     expect(bound).toMatchObject({ present: true, classesTable: { rowCount: 12 } });
+  });
+
+  it("binds spells provenance only when it matches the bound classes source", () => {
+    const classesBound = bindEffectiveCreatureClassesTwoDaToCreatureClassIdentity(storage, {
+      descriptor: {
+        resourceName: "classes.2da", sourceObjectKey: "module/classes.2da",
+        sourceLayer: "module", sha256: "b".repeat(64), sizeBytes: 100, rowCount: 12,
+      },
+      rows: [
+        { rowIndex: 1, displayName: "Bard", displaySource: "strref", nameStrRef: 10 },
+        { rowIndex: 9, displayName: "Sorcerer", displaySource: "strref", nameStrRef: 11 },
+      ],
+    });
+    const bound = bindEffectiveCreatureClassSpellsTwoDaToCreatureClassIdentity(
+      classesBound,
+      {
+        descriptor: {
+          resourceName: "spells.2da", sourceObjectKey: "module/spells.2da",
+          sourceLayer: "module", sha256: "c".repeat(64), sizeBytes: 200, rowCount: 100,
+        },
+        classesDescriptor: {
+          resourceName: "classes.2da", sourceObjectKey: "module/classes.2da",
+          sourceLayer: "module", sha256: "b".repeat(64), sizeBytes: 100, rowCount: 12,
+        },
+        rows: [],
+      },
+    );
+    expect(bound).toMatchObject({
+      present: true,
+      classesTable: { sha256: "b".repeat(64) },
+      spellsTable: { sha256: "c".repeat(64), rowCount: 100 },
+    });
+    expect(readAreaCreatureClassIdentityState(bound)).toEqual(bound);
   });
 
   it.each([

@@ -5,8 +5,10 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {ENVIRONMENT_PROFILE_VERSION,ENVIRONMENT_PROOF_KIND,assertEnvironmentProfile,inspectEnvironmentResources} from './lib/aurora-binary-environment-profile.mjs';
+import {isModuleFileStem,moduleFileNameMatches} from './lib/aurora-module-file-identity.mjs';
 
 const here = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const MODEL_PROFILE_VERSION = "aurora-toolset-binary-module-bootstrap-profile/v1";
@@ -75,6 +77,7 @@ async function validateProfile(profile, inspect) {
   const profileKind = classifyProfile(profile);
   validateCommonProfile(profile);
   if (profileKind === AREA_CREATE_PROOF_KIND) validateAreaCreateProfile(profile);
+  else if (profileKind === ENVIRONMENT_PROOF_KIND) assertEnvironmentProfile(profile);
   else if (profileKind === DYNAMIC_PLACEABLE_PROOF_KIND) validateDynamicPlaceableProfile(profile);
   else validateModelProfile(profile);
   if (inspect) await inspectProfile(profile, profileKind);
@@ -82,6 +85,7 @@ async function validateProfile(profile, inspect) {
 }
 
 function classifyProfile(profile) {
+  if (profile?.version === ENVIRONMENT_PROFILE_VERSION && profile?.proofKind === ENVIRONMENT_PROOF_KIND) return ENVIRONMENT_PROOF_KIND;
   if (profile?.version === MODEL_PROFILE_VERSION) return "model-fixture-geometry";
   if (profile?.version === AREA_CREATE_PROFILE_VERSION && profile?.proofKind === AREA_CREATE_PROOF_KIND) {
     return AREA_CREATE_PROOF_KIND;
@@ -97,7 +101,7 @@ function validateCommonProfile(profile) {
     throw new Error("binary_bootstrap_profile_identity_invalid");
   }
   if (
-    !resref(profile.module?.resref)
+    !isModuleFileStem(profile.module?.resref)
     || !text(profile.module?.path)
     || !sha256Value(profile.module?.sha256)
     || !resref(profile.area?.resref)
@@ -245,7 +249,7 @@ async function inspectProfile(profile, profileKind) {
   if (
     !existsSync(modulePath)
     || statSync(modulePath).size <= 0
-    || basename(modulePath).toLowerCase() !== `${profile.module.resref}.mod`
+    || !moduleFileNameMatches(modulePath,profile.module.resref)
   ) {
     throw new Error("binary_bootstrap_module_identity_invalid");
   }
@@ -276,6 +280,8 @@ async function inspectProfile(profile, profileKind) {
   const git = atom("read-aurora-toolset-bootstrap-git-readback.mjs", ["--module", modulePath, "--area", profile.area.resref]);
   if (profileKind === AREA_CREATE_PROOF_KIND) {
     validateAreaCreateReadback(profile, area, git);
+  } else if (profileKind === ENVIRONMENT_PROOF_KIND) {
+    inspectEnvironmentResources(profile);
   } else if (profileKind === DYNAMIC_PLACEABLE_PROOF_KIND) {
     validateDynamicPlaceableReadback(profile, git);
   } else {

@@ -109,6 +109,15 @@ const allowVerifiedTemp0Cache = booleanOption(
 const verifiedTemp0RecoveryAdmissionPath = options.verifiedTemp0RecoveryAdmission
   ? resolve(options.verifiedTemp0RecoveryAdmission)
   : null;
+const actionJournalDir = options.actionJournalDir
+  ? resolve(options.actionJournalDir)
+  : null;
+if (actionJournalDir) {
+  const journalStat = lstatSync(actionJournalDir);
+  if (journalStat.isSymbolicLink() || !journalStat.isDirectory() || readdirSync(actionJournalDir).length !== 0) {
+    throw new Error("module_open_action_journal_invalid");
+  }
+}
 const verifiedTemp0RecoveryActionAlreadySubmitted = booleanOption(
   options.verifiedTemp0RecoveryActionAlreadySubmitted,
   process.env.AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY_ACTION_ALREADY_SUBMITTED === "1"
@@ -1062,7 +1071,7 @@ function runPowerShellScript(script, options) {
     return execFileSync(
       "powershell.exe",
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-      options
+      { ...options, windowsHide: true }
     );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
@@ -1517,11 +1526,28 @@ $startupLoadMode = $env:AURORA_TOOLSET_STARTUP_LOAD_MODE
 $plannedLoadOwner = $env:AURORA_TOOLSET_PLANNED_LOAD_OWNER
 $observedExternalLoadOwner = $env:AURORA_TOOLSET_OBSERVED_EXTERNAL_LOAD_OWNER
 $startupPassiveObservationMs = [int]$env:AURORA_TOOLSET_STARTUP_PASSIVE_OBSERVATION_MS
+$actionJournalDir = $env:AURORA_TOOLSET_ACTION_JOURNAL_DIR
+$actionJournalHelperPath = $env:AURORA_TOOLSET_ACTION_JOURNAL_HELPER
+if (-not [string]::IsNullOrWhiteSpace($actionJournalDir)) {
+  if (-not (Test-Path -LiteralPath $actionJournalHelperPath -PathType Leaf)) { throw 'aurora_action_journal_helper_missing' }
+  . $actionJournalHelperPath
+  Initialize-AuroraToolsetActionJournal -Directory $actionJournalDir
+}
 $allowVerifiedTemp0Recovery = $env:AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY -eq '1'
 $verifiedTemp0RecoveryActionAlreadySubmitted = $env:AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY_ACTION_ALREADY_SUBMITTED -eq '1'
 $allowForceToolsetRestart = $false
 $allowSecondToolsetStart = $false
 $moduleOpenTimeoutMs = [int]$env:AURORA_TOOLSET_MODULE_OPEN_TIMEOUT_MS
+$expectedContinuationPid = $env:AURORA_TOOLSET_EXPECTED_CONTINUATION_PID
+$expectedContinuationStart = $env:AURORA_TOOLSET_EXPECTED_CONTINUATION_START
+
+function Assert-ExpectedContinuationProcess {
+  if (-not $expectedContinuationPid) { return }
+  $continuationProcesses = @(Get-Process nwtoolset -ErrorAction SilentlyContinue)
+  if ($continuationProcesses.Count -ne 1 -or $continuationProcesses[0].Id -ne [int]$expectedContinuationPid -or $continuationProcesses[0].StartTime.ToUniversalTime().ToString('o') -cne $expectedContinuationStart) {
+    throw 'exact_startup_continuation_process_drift'
+  }
+}
 
 Add-Type @'
 using System;
@@ -2065,11 +2091,8 @@ function Invoke-WelcomeOpenExisting($welcome) {
   }
 }
 
-function Invoke-BlankFrameOpenModuleDialog {
-  $blankFrame = Find-BlankToolsetFrame
-  if ($null -eq $blankFrame) {
-    return $false
-  }
+function Invoke-BlankFrameOpenModuleDialog($blankFrame) {
+  if ($null -eq $blankFrame) { return $false }
   $WM_COMMAND = 0x0111
   return [LastCityToolsetModuleOpen]::PostMessage(([IntPtr][int64]$blankFrame.hwnd), $WM_COMMAND, [IntPtr]44, [IntPtr]::Zero)
 }
@@ -2232,6 +2255,7 @@ if (-not (Test-Path -LiteralPath $toolsetExe)) {
   exit 0
 }
 
+Assert-ExpectedContinuationProcess
 if ((Get-ToolsetProcessIds).Count -gt 0 -and (Get-UsableToolsetTopWindows).Count -eq 0) {
   if ($allowForceToolsetRestart) {
     $staleProcessCleanup = Stop-HeadlessToolsetProcesses
@@ -2251,13 +2275,17 @@ if ((Get-ToolsetProcessIds).Count -gt 0 -and (Get-UsableToolsetTopWindows).Count
 }
 
 if ((Get-ToolsetProcessIds).Count -eq 0) {
-  Start-Process -FilePath $toolsetExe
+  if ($expectedContinuationPid) { throw 'exact_startup_continuation_never_launches' }
+  if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'toolset_start' 'intent' ([ordered]@{existingToolsetProcessCount=0})) }
+  $startedProcess = Start-Process -FilePath $toolsetExe -PassThru
   $startedToolset = $true
+  if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'toolset_start' 'submitted' ([ordered]@{processId=$startedProcess.Id;startTimeUtc=$startedProcess.StartTime.ToUniversalTime().ToString('o')})) }
 }
 $startupObservationStartedAt = Get-Date
 
 $loaded = $null
 for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTimeoutMs; $attempt += 1) {
+  Assert-ExpectedContinuationProcess
   if (((Get-Date) - $startTime).TotalMilliseconds -ge $moduleOpenTimeoutMs) {
     break
   }
@@ -2386,6 +2414,7 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
       $moduleOpenActionSubmitted = $true
       $moduleOpenActionSubmittedAt = $moduleLoadOwnershipClaimedAt
       $moduleOpenActionKind = 'verified_temp0_recovery_yes'
+      if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'recovery_yes' 'intent' ([ordered]@{windowHwnd=$recoveryConfirmationProbe.hwnd;buttonHwnd=$recoveryConfirmationProbe.yesButtonHwnd;promptKind=$recoveryConfirmationProbe.promptKind})) }
       $posted = [LastCityToolsetModuleOpen]::PostMessage(([IntPtr][int64]$recoveryConfirmationProbe.yesButtonHwnd), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
       if (-not $posted) {
         [pscustomobject]@{
@@ -2400,6 +2429,7 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
         } | ConvertTo-Json -Depth 8
         exit 0
       }
+      if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'recovery_yes' 'submitted' ([ordered]@{windowHwnd=$recoveryConfirmationProbe.hwnd;buttonHwnd=$recoveryConfirmationProbe.yesButtonHwnd})) }
       $recoveryConfirmationHandled = $true
       $recoveryConfirmationHandledCount += 1
       $recoverySettleDeadline = (Get-Date).AddSeconds(5)
@@ -2569,7 +2599,9 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
         Start-Sleep -Milliseconds 250
         continue
       }
+      if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'welcome_open_existing' 'intent' ([ordered]@{windowHwnd=$welcomeProbe.hwnd})) }
       $welcomeActionResult = Invoke-WelcomeOpenExisting $welcomeProbe
+      if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'welcome_open_existing' 'submitted' ([ordered]@{windowHwnd=$welcomeProbe.hwnd;okButtonHwnd=$welcomeProbe.okButtonHwnd})) }
       $welcomeHandled = $true
       $openModuleDialogRequested = $true
       continue
@@ -2604,6 +2636,7 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
         } | ConvertTo-Json -Depth 8
         exit 0
       }
+      if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'module_selection' 'intent' ([ordered]@{dialogHwnd=$openModuleDialogProbe.hwnd;listBoxHwnd=$openModuleDialogProbe.listBoxHwnd;openButtonHwnd=$openModuleDialogProbe.openButtonHwnd})) }
       $openModuleDialogResult = Invoke-OpenModuleDialogSelection $openModuleDialogProbe
       if ($openModuleDialogResult.ok -eq $false) {
         break
@@ -2616,6 +2649,7 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
       $moduleOpenActionKind = 'open_module_dialog_selection'
       $moduleLoadOwner = 'explicit_open'
       $moduleLoadOwnershipClaimedAt = $moduleOpenActionSubmittedAt
+      if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'module_selection' 'submitted' ([ordered]@{dialogHwnd=$openModuleDialogProbe.hwnd;selectedItemText=$openModuleDialogResult.selectedItemText;matchedBy=$openModuleDialogResult.matchedBy})) }
       Start-Sleep -Seconds 4
       continue
     }
@@ -2627,7 +2661,12 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
       Start-Sleep -Milliseconds 250
       continue
     }
-    if (Invoke-BlankFrameOpenModuleDialog) {
+    $blankFrame = Find-BlankToolsetFrame
+    if ($null -ne $blankFrame) {
+      if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'blank_open_dialog' 'intent' ([ordered]@{frameHwnd=$blankFrame.hwnd;frameTitle=$blankFrame.title})) }
+    }
+    if ($null -ne $blankFrame -and (Invoke-BlankFrameOpenModuleDialog $blankFrame)) {
+      if ($actionJournalDir) { [void](Write-AuroraToolsetActionJournalEvent 'blank_open_dialog' 'submitted' ([ordered]@{frameHwnd=$blankFrame.hwnd})) }
       $openModuleDialogRequested = $true
       Start-Sleep -Seconds 2
       continue
@@ -2813,11 +2852,28 @@ if ($moduleOpenActionSubmitted) {
       AURORA_TOOLSET_OBSERVED_EXTERNAL_LOAD_OWNER: startupLoadPlan.observedExternalLoadOwner,
       AURORA_TOOLSET_STARTUP_PASSIVE_OBSERVATION_MS: String(startupLoadPlan.passiveObservationMs),
       AURORA_TOOLSET_MODULE_OPEN_TIMEOUT_MS: String(moduleOpenTimeoutMs),
+      AURORA_TOOLSET_EXPECTED_CONTINUATION_PID: options.expectedContinuationPid ?? '',
+      AURORA_TOOLSET_EXPECTED_CONTINUATION_START: options.expectedContinuationStart ?? '',
       AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY: verifiedTemp0RecoveryAdmission ? "1" : "0",
       AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY_ACTION_ALREADY_SUBMITTED: verifiedTemp0RecoveryActionAlreadySubmitted ? "1" : "0",
+      AURORA_TOOLSET_ACTION_JOURNAL_DIR: actionJournalDir ?? "",
+      AURORA_TOOLSET_ACTION_JOURNAL_HELPER: resolve(scriptDir, "lib", "aurora-toolset-action-journal.ps1"),
     },
     maxBuffer: 1024 * 1024 * 8,
-    timeout: moduleOpenTimeoutMs + 30_000
+    timeout: actionJournalDir ? moduleOpenTimeoutMs + 5_000 : moduleOpenTimeoutMs + 30_000
   }).trim();
-  return JSON.parse(raw);
+  const result = JSON.parse(raw);
+  if (actionJournalDir) {
+    const terminal = {
+      version: "aurora-toolset-module-open-action-terminal/v1",
+      at: new Date().toISOString(),
+      ok: result?.ok === true,
+      blockerCode: typeof result?.blockerCode === "string" ? result.blockerCode.slice(0, 128) : null,
+      moduleOpenActionSubmitted: result?.moduleOpenActionSubmitted === true,
+      moduleOpenActionKind: typeof result?.moduleOpenActionKind === "string" ? result.moduleOpenActionKind.slice(0, 128) : null,
+      moduleLoadOwner: typeof result?.moduleLoadOwner === "string" ? result.moduleLoadOwner.slice(0, 128) : null,
+    };
+    writeFileSync(resolve(actionJournalDir, "9999-terminal.json"), `${JSON.stringify(terminal, null, 2)}\n`, { flag: "wx" });
+  }
+  return result;
 }

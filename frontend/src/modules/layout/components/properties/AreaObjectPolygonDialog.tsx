@@ -31,6 +31,12 @@ import {
   MAX_TRIGGER_LINKED_TO_CODE_UNITS,
   type TriggerTransitionStorage,
 } from "../../../scene/domain/triggerTransitionStorage";
+import {
+  MAX_TRIGGER_KEY_NAME_CODE_UNITS,
+  type TriggerCoreProperties,
+} from "../../../scene/domain/triggerCoreProperties";
+import type { TriggerTrapProperties } from
+  "../../../scene/domain/triggerTrapProperties";
 import type {
   SceneEncounterDifficultyCatalog,
   SceneObjectEncounterCreatureListBlueprintTargetEntry,
@@ -53,11 +59,23 @@ import { TRIGGER_EDITOR_COMMENT_MAX_CODE_UNITS } from
   "../../../scene/domain/triggerEditorComment";
 import { readEncounterVariableTargetEntries } from
   "../../../scene/domain/encounterVariableTable";
+import { readTriggerVariableTargetEntries } from
+  "../../../scene/domain/triggerVariableTable";
 import type { AuroraVariableTargetEntry } from
   "../../../shared/domain/auroraVariableTable";
 import { AuroraVariableTableEditor } from "./AuroraVariableTableEditor";
 import { MAX_ENCOUNTER_CREATURE_LIST_ENTRIES } from
   "../../../scene/domain/encounterCreatureSingleSpawn";
+
+const TRIGGER_TRAP_PROPERTY_INPUTS = Object.freeze([
+  { key: "trapDetectable", label: "TrapDetectable" },
+  { key: "trapDetectDc", label: "TrapDetectDC" },
+  { key: "trapDisarmable", label: "TrapDisarmable" },
+  { key: "disarmDc", label: "DisarmDC" },
+  { key: "trapFlag", label: "TrapFlag" },
+  { key: "trapOneShot", label: "TrapOneShot" },
+  { key: "trapType", label: "TrapType" },
+] as const);
 
 export interface AreaObjectPolygonDialogViewModel {
   readonly objectId: string;
@@ -90,6 +108,8 @@ interface AreaObjectPolygonDialogProps {
     value: string,
   ) => void;
   onTriggerTransitionStorageChange?: (value: TriggerTransitionStorage) => void;
+  onTriggerCorePropertiesChange?: (value: TriggerCoreProperties) => void;
+  onTriggerTrapPropertiesChange?: (value: TriggerTrapProperties) => void;
   encounterFactionCatalog?: ScenePlaceableFactionCatalog | null;
   onFactionChange?: (value: number) => void;
   encounterDifficultyCatalog?: SceneEncounterDifficultyCatalog | null;
@@ -148,6 +168,8 @@ export function AreaObjectPolygonDialog({
   onScriptResRefChange,
   onTriggerScriptResRefChange,
   onTriggerTransitionStorageChange,
+  onTriggerCorePropertiesChange,
+  onTriggerTrapPropertiesChange,
   encounterFactionCatalog,
   onFactionChange,
   encounterDifficultyCatalog,
@@ -194,6 +216,11 @@ export function AreaObjectPolygonDialog({
     dialog.draft.triggerScriptResRefsControlState === "ACTIVE_NOW";
   const triggerTransitionStorageEditable =
     dialog.draft.triggerTransitionStorageControlState === "ACTIVE_NOW";
+  const triggerCorePropertiesEditable =
+    dialog.draft.triggerCorePropertiesControlState === "ACTIVE_NOW";
+  const triggerTrapPropertiesEditable =
+    dialog.draft.triggerTrapPropertiesControlState === "ACTIVE_NOW";
+  const triggerTrapProperties = dialog.draft.triggerTrapProperties;
   const factionEditable = dialog.draft.factionControlState === "ACTIVE_NOW";
   const difficultyEditable = dialog.draft.difficultyControlState === "ACTIVE_NOW";
   const localizedNameEditable =
@@ -208,7 +235,9 @@ export function AreaObjectPolygonDialog({
   const variables = dialog.draft.variables ?? [];
   const commitVariables = (next: readonly AuroraVariableTargetEntry[]) => {
     if (!variablesEditable) return;
-    const parsed = readEncounterVariableTargetEntries(next);
+    const parsed = dialog.objectKind === "triggers"
+      ? readTriggerVariableTargetEntries(next)
+      : readEncounterVariableTargetEntries(next);
     if (parsed) onVariablesChange?.(parsed.map((entry) => ({ ...entry })));
   };
   const exactFactionCatalog = readPlaceableFactionCatalog(
@@ -256,12 +285,14 @@ export function AreaObjectPolygonDialog({
         {dialog.draft.tag !== undefined
         || dialog.draft.templateResRef !== undefined
         || dialog.draft.localizedName !== undefined
-         || dialog.draft.editorComment !== undefined
+        || dialog.draft.editorComment !== undefined
         || dialog.draft.triggerScriptResRefs !== undefined
         || dialog.draft.triggerTransitionStorage !== undefined
+        || dialog.draft.triggerCoreProperties !== undefined
+        || dialog.draft.triggerTrapProperties !== undefined
+        || dialog.draft.variables !== undefined
         || (dialog.objectKind === "encounters" && (
-          dialog.draft.variables !== undefined
-           || dialog.draft.creatureList !== undefined
+          dialog.draft.creatureList !== undefined
            || dialog.draft.spawnPoints !== undefined
           ||
           dialog.draft.active !== undefined
@@ -352,16 +383,15 @@ export function AreaObjectPolygonDialog({
                 </small>
               </>
             ) : null}
-            {dialog.objectKind === "encounters"
-              && dialog.draft.variables !== undefined ? (
+            {dialog.draft.variables !== undefined ? (
               <section className="canvas-store-variables-group">
                 <p>Variables: <strong>{dialog.draft.variablesControlState}</strong></p>
                 <AuroraVariableTableEditor
                   entries={variables}
                   editable={variablesEditable}
-                  ariaLabelPrefix="Encounter variable"
-                  actionAriaLabelPrefix="Encounter variable"
-                  addButtonAriaLabel="Add Encounter variable"
+                  ariaLabelPrefix={`${familyLabel} variable`}
+                  actionAriaLabelPrefix={`${familyLabel} variable`}
+                  addButtonAriaLabel={`Add ${familyLabel} variable`}
                   onAdd={() => commitVariables([
                     ...variables,
                     { name: "", type: "int", value: 0 },
@@ -383,8 +413,8 @@ export function AreaObjectPolygonDialog({
                 />
                 <small>
                   {variablesEditable
-                    ? "ACTIVE_NOW: exact ordered Encounter VarTable; add, edit, remove, and reorder preserve duplicates and physical order"
-                    : "PRESERVE_ONLY: exact retained Encounter VarTable provenance is unavailable"}
+                    ? `ACTIVE_NOW: exact ordered ${familyLabel} VarTable; add, edit, remove, and reorder preserve duplicates and physical order`
+                    : `PRESERVE_ONLY: exact retained ${familyLabel} VarTable provenance is unavailable`}
                 </small>
               </section>
             ) : null}
@@ -816,6 +846,155 @@ export function AreaObjectPolygonDialog({
                   {triggerTransitionStorageEditable
                     ? "ACTIVE_NOW: exact retained Trigger transition storage; field meaning is intentionally not inferred"
                     : "PRESERVE_ONLY: exact retained Trigger transition storage is unavailable"}
+                </small>
+              </>
+            ) : null}
+            {dialog.objectKind === "triggers" && dialog.draft.triggerCoreProperties ? (
+              <>
+                <label>
+                  <span>Raw AutoRemoveKey</span>
+                  <span className="canvas-property-support-state">
+                    {triggerCorePropertiesEditable ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    aria-label="Trigger Raw AutoRemoveKey"
+                    checked={dialog.draft.triggerCoreProperties.autoRemoveKey === 1}
+                    disabled={!triggerCorePropertiesEditable}
+                    onChange={(event) => onTriggerCorePropertiesChange?.({
+                      ...dialog.draft.triggerCoreProperties!,
+                      autoRemoveKey: event.target.checked ? 1 : 0,
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>Raw Faction</span>
+                  <input
+                    type="number"
+                    aria-label="Trigger Raw Faction"
+                    min={0}
+                    max={0xffff_ffff}
+                    step={1}
+                    value={dialog.draft.triggerCoreProperties.factionId}
+                    disabled={!triggerCorePropertiesEditable}
+                    onChange={(event) => onTriggerCorePropertiesChange?.({
+                      ...dialog.draft.triggerCoreProperties!,
+                      factionId: event.target.valueAsNumber,
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>Raw Cursor</span>
+                  <input
+                    type="number"
+                    aria-label="Trigger Raw Cursor"
+                    min={0}
+                    max={0xff}
+                    step={1}
+                    value={dialog.draft.triggerCoreProperties.cursorId}
+                    disabled={!triggerCorePropertiesEditable}
+                    onChange={(event) => onTriggerCorePropertiesChange?.({
+                      ...dialog.draft.triggerCoreProperties!,
+                      cursorId: event.target.valueAsNumber,
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>Raw HighlightHeight</span>
+                  <input
+                    type="number"
+                    aria-label="Trigger Raw HighlightHeight"
+                    step="any"
+                    value={dialog.draft.triggerCoreProperties.highlightHeight}
+                    disabled={!triggerCorePropertiesEditable}
+                    onChange={(event) => onTriggerCorePropertiesChange?.({
+                      ...dialog.draft.triggerCoreProperties!,
+                      highlightHeight: Math.fround(event.target.valueAsNumber),
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>Raw KeyName</span>
+                  <input
+                    type="text"
+                    aria-label="Trigger Raw KeyName"
+                    value={dialog.draft.triggerCoreProperties.keyName}
+                    maxLength={MAX_TRIGGER_KEY_NAME_CODE_UNITS}
+                    disabled={!triggerCorePropertiesEditable}
+                    onChange={(event) => onTriggerCorePropertiesChange?.({
+                      ...dialog.draft.triggerCoreProperties!,
+                      keyName: event.target.value,
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>Raw PortraitId</span>
+                  <input
+                    type="number"
+                    aria-label="Trigger Raw PortraitId"
+                    min={0}
+                    max={0xffff}
+                    step={1}
+                    value={dialog.draft.triggerCoreProperties.portraitId}
+                    disabled={!triggerCorePropertiesEditable}
+                    onChange={(event) => onTriggerCorePropertiesChange?.({
+                      ...dialog.draft.triggerCoreProperties!,
+                      portraitId: event.target.valueAsNumber,
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>Raw Type</span>
+                  <input
+                    type="number"
+                    aria-label="Trigger Raw Type"
+                    min={-0x8000_0000}
+                    max={0x7fff_ffff}
+                    step={1}
+                    value={dialog.draft.triggerCoreProperties.triggerType}
+                    disabled={!triggerCorePropertiesEditable}
+                    onChange={(event) => onTriggerCorePropertiesChange?.({
+                      ...dialog.draft.triggerCoreProperties!,
+                      triggerType: event.target.valueAsNumber,
+                    })}
+                  />
+                </label>
+                <small>
+                  {triggerCorePropertiesEditable
+                    ? "ACTIVE_NOW: exact retained Trigger core properties; numeric enum meanings remain intentionally uninterpreted"
+                    : "PRESERVE_ONLY: exact retained Trigger core properties are unavailable"}
+                </small>
+              </>
+            ) : null}
+            {dialog.objectKind === "triggers" && triggerTrapProperties ? (
+              <>
+                {TRIGGER_TRAP_PROPERTY_INPUTS.map((field, index) => (
+                  <label key={field.key}>
+                    <span>{index === 0 ? `Raw ${field.label}` : field.label}</span>
+                    {index === 0 ? (
+                      <span className="canvas-property-support-state">
+                        {triggerTrapPropertiesEditable ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                      </span>
+                    ) : null}
+                    <input
+                      type="number"
+                      aria-label={`Trigger Raw ${field.label}`}
+                      min={0}
+                      max={0xff}
+                      step={1}
+                      value={triggerTrapProperties[field.key]}
+                      disabled={!triggerTrapPropertiesEditable}
+                      onChange={(event) => onTriggerTrapPropertiesChange?.({
+                        ...triggerTrapProperties,
+                        [field.key]: event.currentTarget.valueAsNumber,
+                      })}
+                    />
+                  </label>
+                ))}
+                <small>
+                  {triggerTrapPropertiesEditable
+                    ? "ACTIVE_NOW: exact retained Trigger trap storage; all seven bytes remain intentionally uninterpreted"
+                    : "PRESERVE_ONLY: exact retained Trigger trap storage is unavailable"}
                 </small>
               </>
             ) : null}

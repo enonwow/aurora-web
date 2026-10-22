@@ -228,8 +228,17 @@ function materializeRetainedItem(
       source.itemProperties,
       {
         localizedName: draft.localizedName,
+        ...(draft.localizedNameEntries
+          ? { localizedNameEntries: draft.localizedNameEntries }
+          : {}),
         description: draft.description,
+        ...(draft.descriptionEntries
+          ? { descriptionEntries: draft.descriptionEntries }
+          : {}),
         identifiedDescription: draft.identifiedDescription,
+        ...(draft.identifiedDescriptionEntries
+          ? { identifiedDescriptionEntries: draft.identifiedDescriptionEntries }
+          : {}),
       },
     ),
   );

@@ -14,6 +14,200 @@ import {
 } from "../support/area-object-pair-writer-fixture";
 
 describe("Aurora GIT Creature class-identity writer", () => {
+  it("replaces only an exact no-metamagic class spell Word", () => {
+    const classList = classListRemovalFixture();
+    const pair = creatureAreaObjectPair([classList]);
+    const result = mutateExistingAreaObjectsInGitGic({
+      sourceGit: pair.git,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "creature",
+        sourceIndex: 0,
+        classSpellReplacement: {
+          expectedClassIds: [1, 7],
+          expectedLevels: [3, 2],
+          classListGraphSha256: fingerprintAreaCreatureClassListField(classList),
+          classesTableSha256: "a".repeat(64),
+          classesRowCount: 11,
+          spellsTableSha256: "b".repeat(64),
+          spellsRowCount: 100,
+          replacements: [{
+            classSlotIndex: 0,
+            listKind: "known",
+            spellLevel: 0,
+            entryIndex: 0,
+            expectedSpellId: 11,
+            targetSpellId: 13,
+          }],
+          spellReplacementConfirmed: true,
+        },
+      }],
+    });
+
+    const creature = gffList(parseRawGffDocument(result.gitBytes), "Creature List")!.value[0]!;
+    const target = creature.fields.find((field) => field.label === "ClassList");
+    expect(target?.type).toBe("list");
+    if (target?.type !== "list" || classList.type !== "list") return;
+    const known = target.value[0]!.fields.find((field) => field.label === "KnownList0");
+    expect(known?.type).toBe("list");
+    if (known?.type !== "list") return;
+    expect(known.value[0]).toEqual({
+      typeId: 3,
+      fields: [
+        { label: "Spell", type: "word", value: 13 },
+        { label: "SpellMetaMagic", type: "byte", value: 0 },
+        { label: "SpellFlags", type: "byte", value: 1 },
+      ],
+    });
+    expect(known.value[1]).toEqual(
+      classList.value[0]!.fields.find((field) => field.label === "KnownList0")!.value[1],
+    );
+    expect(target.value[0]!.fields.find((field) => field.label === "Opaque"))
+      .toEqual({ label: "Opaque", type: "cexostring", value: "preserve" });
+    expect(result.gicBytes).toEqual(pair.gic);
+  });
+
+  it("reorders exact existing spell structs within one list and preserves every field", () => {
+    const classList = classListRemovalFixture();
+    const pair = creatureAreaObjectPair([classList]);
+    const result = mutateExistingAreaObjectsInGitGic({
+      sourceGit: pair.git,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "creature",
+        sourceIndex: 0,
+        classSpellReorder: {
+          expectedClassIds: [1, 7],
+          expectedLevels: [3, 2],
+          classListGraphSha256: fingerprintAreaCreatureClassListField(classList),
+          reorders: [{
+            classSlotIndex: 0,
+            listKind: "known",
+            spellLevel: 0,
+            entryOrder: [1, 0],
+          }],
+          spellReorderConfirmed: true,
+        },
+      }],
+    });
+
+    const creature = gffList(parseRawGffDocument(result.gitBytes), "Creature List")!.value[0]!;
+    const target = creature.fields.find((field) => field.label === "ClassList");
+    expect(target?.type).toBe("list");
+    if (!target || target.type !== "list" || classList.type !== "list") return;
+    const sourceKnown = classList.value[0]!.fields.find(
+      (field) => field.label === "KnownList0",
+    );
+    expect(sourceKnown?.type).toBe("list");
+    if (!sourceKnown || sourceKnown.type !== "list") return;
+    expect(target.value[0]?.fields.find((field) => field.label === "KnownList0"))
+      .toEqual({
+        label: "KnownList0",
+        type: "list",
+        value: [sourceKnown.value[1], sourceKnown.value[0]],
+      });
+    expect(target.value[0]?.fields.find((field) => field.label === "Opaque"))
+      .toEqual({ label: "Opaque", type: "cexostring", value: "preserve" });
+    expect(target.value[1]).toEqual(classList.value[1]);
+    expect(result.gicBytes).toEqual(pair.gic);
+  });
+
+  it("removes exact existing spell structs and drops only emptied list fields", () => {
+    const classList = classListRemovalFixture();
+    const pair = creatureAreaObjectPair([classList]);
+    const result = mutateExistingAreaObjectsInGitGic({
+      sourceGit: pair.git,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "creature",
+        sourceIndex: 0,
+        classSpellRemoval: {
+          expectedClassIds: [1, 7],
+          expectedLevels: [3, 2],
+          classListGraphSha256: fingerprintAreaCreatureClassListField(classList),
+          targets: [
+            { classSlotIndex: 0, listKind: "known", spellLevel: 0, entryIndex: 0 },
+            { classSlotIndex: 1, listKind: "memorized", spellLevel: 0, entryIndex: 0 },
+          ],
+          destructiveSpellRemovalConfirmed: true,
+        },
+      }],
+    });
+
+    const creature = gffList(parseRawGffDocument(result.gitBytes), "Creature List")!.value[0]!;
+    const target = creature.fields.find((field) => field.label === "ClassList");
+    expect(target?.type).toBe("list");
+    if (!target || target.type !== "list" || classList.type !== "list") return;
+    expect(target.value[0]?.fields.find((field) => field.label === "KnownList0")).toEqual({
+      label: "KnownList0",
+      type: "list",
+      value: [classList.value[0]!.fields.find((field) => field.label === "KnownList0")!
+        .value[1]],
+    });
+    expect(target.value[1]?.fields.some((field) => field.label === "MemorizedList0"))
+      .toBe(false);
+    expect(target.value[0]?.fields.find((field) => field.label === "Opaque"))
+      .toEqual({ label: "Opaque", type: "cexostring", value: "preserve" });
+    expect(result.gicBytes).toEqual(pair.gic);
+  });
+
+  it("clears spell lists from selected unchanged class slots and preserves every sibling", () => {
+    const classList = classListFixture();
+    const pair = creatureAreaObjectPair([classList]);
+    const result = mutateExistingAreaObjectsInGitGic({
+      sourceGit: pair.git,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "creature",
+        sourceIndex: 0,
+        classSpellClear: {
+          expectedClassIds: [4, 7],
+          expectedLevels: [3, 2],
+          classListGraphSha256: fingerprintAreaCreatureClassListField(classList),
+          classSlotIndices: [0],
+          destructiveSpellClearConfirmed: true,
+        },
+      }],
+    });
+
+    const candidate = gffList(parseRawGffDocument(result.gitBytes), "Creature List")!.value[0]!;
+    const target = candidate.fields.find((field) => field.label === "ClassList");
+    expect(target?.type).toBe("list");
+    if (!target || target.type !== "list" || classList.type !== "list") return;
+    expect(target.value[0]?.fields).toEqual([
+      { label: "Class", type: "int", value: 4 },
+      { label: "ClassLevel", type: "short", value: 3 },
+      { label: "Opaque", type: "cexostring", value: "preserve" },
+    ]);
+    expect(target.value[1]).toEqual(classList.value[1]);
+    expect(result.gicBytes).toEqual(pair.gic);
+  });
+
+  it("rejects spell-list clear against a stale whole-graph fingerprint", () => {
+    const classList = classListFixture();
+    const pair = creatureAreaObjectPair([classList]);
+    expect(() => mutateExistingAreaObjectsInGitGic({
+      sourceGit: pair.git,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "creature",
+        sourceIndex: 0,
+        classSpellClear: {
+          expectedClassIds: [4, 7],
+          expectedLevels: [3, 2],
+          classListGraphSha256: "f".repeat(64),
+          classSlotIndices: [0],
+          destructiveSpellClearConfirmed: true,
+        },
+      }],
+    })).toThrow(AreaObjectPairMutationError);
+  });
+
   it("clears changed-slot spells and updates ClassLevel and StartingPackage atomically", () => {
     const classList = classListFixture();
     const pair = creatureAreaObjectPair([
@@ -281,6 +475,55 @@ function classListFixture(): SupportedGffField {
               ],
             }],
           },
+        ],
+      },
+    ],
+  };
+}
+
+function classListRemovalFixture(): SupportedGffField {
+  return {
+    label: "ClassList",
+    type: "list",
+    value: [
+      {
+        typeId: 2,
+        fields: [
+          { label: "Class", type: "int", value: 1 },
+          { label: "ClassLevel", type: "short", value: 3 },
+          {
+            label: "KnownList0",
+            type: "list",
+            value: [
+              { typeId: 3, fields: [
+                { label: "Spell", type: "word", value: 11 },
+                { label: "SpellMetaMagic", type: "byte", value: 0 },
+                { label: "SpellFlags", type: "byte", value: 1 },
+              ] },
+              { typeId: 3, fields: [
+                { label: "Spell", type: "word", value: 12 },
+                { label: "SpellMetaMagic", type: "byte", value: 2 },
+                { label: "SpellFlags", type: "byte", value: 1 },
+                { label: "OpaqueSpell", type: "cexostring", value: "keep" },
+              ] },
+            ],
+          },
+          { label: "Opaque", type: "cexostring", value: "preserve" },
+        ],
+      },
+      {
+        typeId: 2,
+        fields: [
+          { label: "Class", type: "int", value: 7 },
+          { label: "ClassLevel", type: "short", value: 2 },
+          { label: "MemorizedList0", type: "list", value: [{
+            typeId: 3,
+            fields: [
+              { label: "Spell", type: "word", value: 22 },
+              { label: "SpellMetaMagic", type: "byte", value: 1 },
+              { label: "SpellFlags", type: "byte", value: 0 },
+            ],
+          }] },
         ],
       },
     ],

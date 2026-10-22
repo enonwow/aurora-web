@@ -30,6 +30,7 @@ export interface EffectiveCreatureClassesTwoDaRow {
   readonly displayName: string;
   readonly displaySource: EffectiveCreatureClassesTwoDaDisplaySource;
   readonly nameStrRef: number;
+  readonly spellTableColumn?: string;
 }
 
 export interface EffectiveCreatureClassesTwoDaTable {
@@ -79,6 +80,11 @@ function readDisplayText(value: unknown): string | null {
     !value.includes("\0") ? value : null;
 }
 
+function readSpellTableColumn(value: unknown): string | null {
+  return typeof value === "string" && value !== "****" && value.length >= 1 &&
+    value.length <= 64 && /^[A-Za-z0-9_]+$/u.test(value) ? value : null;
+}
+
 export function isCreatureClassRowIndex(value: unknown, rowCount: number): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= INT_MAX &&
     Number(value) < rowCount;
@@ -123,6 +129,13 @@ export function parseEffectiveCreatureClassesTwoDa(
       displayName: localized ?? `StringRef ${nameStrRef}`,
       displaySource: localized ? "strref" as const : "strref_id" as const,
       nameStrRef,
+      ...(readSpellTableColumn(
+        readCell(row, normalizedHeader, "SPELLTABLECOLUMN"),
+      ) === null ? {} : {
+        spellTableColumn: readSpellTableColumn(
+          readCell(row, normalizedHeader, "SPELLTABLECOLUMN"),
+        )!,
+      }),
     }));
   }
   if (rows.length === 0) return null;
@@ -185,13 +198,18 @@ export function isExactEffectiveCreatureClassesTwoDaTable(
 
   let previousRowIndex = -1;
   for (const row of value.rows) {
-    if (!isPlainRecord(row) || !hasExactKeys(row, [
+    if (!isPlainRecord(row)) return false;
+    const hasSpellTableColumn = Object.prototype.hasOwnProperty.call(row, "spellTableColumn");
+    if (!hasExactKeys(row, hasSpellTableColumn ? [
+      "rowIndex", "displayName", "displaySource", "nameStrRef", "spellTableColumn",
+    ] : [
       "rowIndex", "displayName", "displaySource", "nameStrRef",
     ]) || !isCreatureClassRowIndex(row.rowIndex, Number(descriptor.rowCount)) ||
       Number(row.rowIndex) <= previousRowIndex || readDisplayText(row.displayName) === null ||
       (row.displaySource !== "strref" && row.displaySource !== "strref_id") ||
       !Number.isSafeInteger(row.nameStrRef) || Number(row.nameStrRef) < 0 ||
-      Number(row.nameStrRef) > DWORD_MAX) return false;
+      Number(row.nameStrRef) > DWORD_MAX ||
+      hasSpellTableColumn && readSpellTableColumn(row.spellTableColumn) === null) return false;
     previousRowIndex = Number(row.rowIndex);
   }
   return true;

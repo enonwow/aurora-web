@@ -9,6 +9,7 @@ import type {
   SceneObjectEncounterSpawnPointTargetEntry,
   SceneObjectEncounterVariableTargetEntry,
   SceneObjectWaypointVariableTargetEntry,
+  SceneObjectTriggerVariableTargetEntry,
   SceneTile,
   TerrainBrushKind
 } from "../contracts";
@@ -72,6 +73,20 @@ import {
   type TriggerTransitionStorage,
 } from "../domain/triggerTransitionStorage";
 import {
+  canEditExistingTriggerCoreProperties,
+  cloneTriggerCoreProperties,
+  isTriggerCoreProperties,
+  triggerCorePropertiesEqual,
+  type TriggerCoreProperties,
+} from "../domain/triggerCoreProperties";
+import {
+  canEditExistingTriggerTrapProperties,
+  cloneTriggerTrapProperties,
+  isTriggerTrapProperties,
+  triggerTrapPropertiesEqual,
+  type TriggerTrapProperties,
+} from "../domain/triggerTrapProperties";
+import {
   canEditExistingEncounterTag,
   isEditableEncounterTag,
 } from "../domain/encounterTag";
@@ -111,6 +126,11 @@ import {
   readWaypointVariableTargetEntries,
   waypointVariableTargetEntriesEqual,
 } from "../domain/waypointVariableTable";
+import {
+  readTriggerVariableProvenance,
+  readTriggerVariableTargetEntries,
+  triggerVariableTargetEntriesEqual,
+} from "../domain/triggerVariableTable";
 import {
   canEditExistingEncounterActive,
   cloneEncounterActiveStorage,
@@ -283,6 +303,21 @@ export interface SceneMutationsFacade {
     scene: AreaScene,
     objectId: string,
     storage: TriggerTransitionStorage,
+  ): AreaScene;
+  setExistingTriggerCorePropertiesById(
+    scene: AreaScene,
+    objectId: string,
+    properties: TriggerCoreProperties,
+  ): AreaScene;
+  setExistingTriggerTrapPropertiesById(
+    scene: AreaScene,
+    objectId: string,
+    properties: TriggerTrapProperties,
+  ): AreaScene;
+  setExistingTriggerVariablesById(
+    scene: AreaScene,
+    objectId: string,
+    variables: readonly SceneObjectTriggerVariableTargetEntry[],
   ): AreaScene;
   setAreaObjectPolygonGeometryById(
     scene: AreaScene,
@@ -830,6 +865,79 @@ function setExistingTriggerTransitionStorage(
   return replaceSceneObjects(scene, nextObjects);
 }
 
+function setExistingTriggerCoreProperties(
+  scene: AreaScene,
+  objectId: string,
+  properties: TriggerCoreProperties,
+): AreaScene {
+  if (!isTriggerCoreProperties(properties)) return scene;
+  const targetIndex = scene.objects.findIndex((object) => object.id === objectId);
+  const object = targetIndex < 0 ? undefined : scene.objects[targetIndex];
+  if (
+    !object
+    || object.kind !== "triggers"
+    || !canEditExistingTriggerCoreProperties(object.source)
+    || !isTriggerCoreProperties(object.triggerCoreProperties)
+    || triggerCorePropertiesEqual(object.triggerCoreProperties, properties)
+  ) return scene;
+  const nextObjects = [...scene.objects];
+  nextObjects[targetIndex] = {
+    ...object,
+    triggerCoreProperties: cloneTriggerCoreProperties(properties),
+  };
+  return replaceSceneObjects(scene, nextObjects);
+}
+
+function setExistingTriggerTrapProperties(
+  scene: AreaScene,
+  objectId: string,
+  properties: TriggerTrapProperties,
+): AreaScene {
+  if (!isTriggerTrapProperties(properties)) return scene;
+  const targetIndex = scene.objects.findIndex((object) => object.id === objectId);
+  const object = targetIndex < 0 ? undefined : scene.objects[targetIndex];
+  if (
+    !object
+    || object.kind !== "triggers"
+    || !canEditExistingTriggerTrapProperties(object.source)
+    || !isTriggerTrapProperties(object.triggerTrapProperties)
+    || triggerTrapPropertiesEqual(object.triggerTrapProperties, properties)
+  ) return scene;
+  const nextObjects = [...scene.objects];
+  nextObjects[targetIndex] = {
+    ...object,
+    triggerTrapProperties: cloneTriggerTrapProperties(properties),
+  };
+  return replaceSceneObjects(scene, nextObjects);
+}
+
+function setExistingTriggerVariables(
+  scene: AreaScene,
+  objectId: string,
+  variables: readonly SceneObjectTriggerVariableTargetEntry[],
+): AreaScene {
+  const target = readTriggerVariableTargetEntries(variables);
+  if (!target) return scene;
+  const targetIndex = scene.objects.findIndex((object) => object.id === objectId);
+  const object = targetIndex < 0 ? undefined : scene.objects[targetIndex];
+  const provenance = readTriggerVariableProvenance(object?.source?.triggerVariables);
+  if (
+    !object
+    || object.kind !== "triggers"
+    || object.source?.type !== "aurora_git"
+    || object.source.sourceKind !== "trigger"
+    || !Number.isSafeInteger(object.source.sourceIndex)
+    || !provenance
+    || triggerVariableTargetEntriesEqual(object.triggerVariables, target)
+  ) return scene;
+  const nextObjects = [...scene.objects];
+  nextObjects[targetIndex] = {
+    ...object,
+    triggerVariables: target.map((entry) => ({ ...entry })),
+  };
+  return replaceSceneObjects(scene, nextObjects);
+}
+
 function isVisualTransformPersistenceSupported(object: SceneObject): boolean {
   if (object.kind !== "items") return true;
   return canEditRetainedItemVisualTransform(object);
@@ -935,6 +1043,27 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       storage: TriggerTransitionStorage,
     ): AreaScene {
       return setExistingTriggerTransitionStorage(scene, objectId, storage);
+    },
+    setExistingTriggerCorePropertiesById(
+      scene: AreaScene,
+      objectId: string,
+      properties: TriggerCoreProperties,
+    ): AreaScene {
+      return setExistingTriggerCoreProperties(scene, objectId, properties);
+    },
+    setExistingTriggerTrapPropertiesById(
+      scene: AreaScene,
+      objectId: string,
+      properties: TriggerTrapProperties,
+    ): AreaScene {
+      return setExistingTriggerTrapProperties(scene, objectId, properties);
+    },
+    setExistingTriggerVariablesById(
+      scene: AreaScene,
+      objectId: string,
+      variables: readonly SceneObjectTriggerVariableTargetEntry[],
+    ): AreaScene {
+      return setExistingTriggerVariables(scene, objectId, variables);
     },
     setAreaObjectPolygonGeometryById(
       scene: AreaScene,

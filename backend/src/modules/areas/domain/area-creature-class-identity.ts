@@ -2,6 +2,10 @@ import {
   isExactEffectiveCreatureClassesTwoDaTable,
   type EffectiveCreatureClassesTwoDaTable,
 } from "../../catalog/domain/effective-creature-classes-two-da";
+import {
+  isExactEffectiveCreatureClassSpellsTwoDaTable,
+  type EffectiveCreatureClassSpellsTwoDaTable,
+} from "../../catalog/domain/effective-creature-class-spells-two-da";
 
 const INT_MAX = 0x7fff_ffff;
 const BYTE_MAX = 0xff;
@@ -12,6 +16,7 @@ const MAX_CLASS_ROWS = 65_536;
 const MAX_PACKAGE_ROWS = 256;
 const MAX_FIELDS = 65_535;
 const MAX_SPELL_ENTRIES = 65_535;
+const MAX_DETAILED_SPELL_ENTRIES = 256;
 
 const BASE_KEYS = [
   "present", "nativeType", "structTypeId", "classNativeType", "levelNativeType",
@@ -20,6 +25,11 @@ const BASE_KEYS = [
 const ENTRY_KEYS = [
   "classId", "level", "opaqueSiblingFieldCount", "canonicalSpellListFieldCount",
   "spellEntryCount",
+] as const;
+const DETAILED_ENTRY_KEYS = [...ENTRY_KEYS, "spellLists"] as const;
+const SPELL_LIST_KEYS = ["listKind", "spellLevel", "entries"] as const;
+const SPELL_ENTRY_KEYS = [
+  "spellId", "spellMetaMagic", "spellFlags", "opaqueSiblingFieldCount",
 ] as const;
 const TABLE_KEYS = [
   "resourceName", "sourceObjectKey", "sourceLayer", "sha256", "sizeBytes", "rowCount",
@@ -36,10 +46,33 @@ export interface AreaCreatureClassIdentityEntry {
   readonly opaqueSiblingFieldCount: number;
   readonly canonicalSpellListFieldCount: number;
   readonly spellEntryCount: number;
+  readonly spellLists?: readonly AreaCreatureClassSpellListState[];
+}
+
+export interface AreaCreatureClassSpellEntryState {
+  readonly spellId: number;
+  readonly spellMetaMagic: number;
+  readonly spellFlags: number;
+  readonly opaqueSiblingFieldCount: number;
+}
+
+export interface AreaCreatureClassSpellListState {
+  readonly listKind: "known" | "memorized";
+  readonly spellLevel: number;
+  readonly entries: readonly AreaCreatureClassSpellEntryState[];
 }
 
 export interface AreaCreatureClassesTableBinding {
   readonly resourceName: "classes.2da";
+  readonly sourceObjectKey: string;
+  readonly sourceLayer: "module" | "hak" | "vanilla";
+  readonly sha256: string;
+  readonly sizeBytes: number;
+  readonly rowCount: number;
+}
+
+export interface AreaCreatureClassSpellsTableBinding {
+  readonly resourceName: "spells.2da";
   readonly sourceObjectKey: string;
   readonly sourceLayer: "module" | "hak" | "vanilla";
   readonly sha256: string;
@@ -58,6 +91,7 @@ export type AreaCreatureClassIdentityState =
       classListGraphSha256: string;
       entries: readonly AreaCreatureClassIdentityEntry[];
       classesTable?: AreaCreatureClassesTableBinding;
+      spellsTable?: AreaCreatureClassSpellsTableBinding;
     }>;
 
 export interface ExistingAreaCreatureClassIdentityMutation {
@@ -130,6 +164,63 @@ function readTable(value: unknown): AreaCreatureClassesTableBinding | null {
   });
 }
 
+function readSpellsTable(value: unknown): AreaCreatureClassSpellsTableBinding | null {
+  if (!isPlainRecord(value) || !hasExactKeys(value, TABLE_KEYS) ||
+    value.resourceName !== "spells.2da" || typeof value.sourceObjectKey !== "string" ||
+    value.sourceObjectKey.length < 1 || value.sourceObjectKey.length > 2048 ||
+    (value.sourceLayer !== "module" && value.sourceLayer !== "hak" &&
+      value.sourceLayer !== "vanilla") || !isSha256(value.sha256) ||
+    !isBoundedInteger(value.sizeBytes, 1, 64 * 1024 * 1024) ||
+    !isBoundedInteger(value.rowCount, 1, MAX_CLASS_ROWS)) return null;
+  return Object.freeze({
+    resourceName: "spells.2da",
+    sourceObjectKey: value.sourceObjectKey,
+    sourceLayer: value.sourceLayer,
+    sha256: value.sha256,
+    sizeBytes: Number(value.sizeBytes),
+    rowCount: Number(value.rowCount),
+  });
+}
+
+function readSpellLists(value: unknown): readonly AreaCreatureClassSpellListState[] | null {
+  if (!Array.isArray(value) || value.length > 28) return null;
+  const lists: AreaCreatureClassSpellListState[] = [];
+  let previousOrder = -1;
+  let totalEntries = 0;
+  for (const candidate of value) {
+    if (!isPlainRecord(candidate) || !hasExactKeys(candidate, SPELL_LIST_KEYS) ||
+      (candidate.listKind !== "known" && candidate.listKind !== "memorized") ||
+      !isBoundedInteger(candidate.spellLevel, 0, 13) || !Array.isArray(candidate.entries)) {
+      return null;
+    }
+    const order = (candidate.listKind === "known" ? 0 : 14) + Number(candidate.spellLevel);
+    if (order <= previousOrder) return null;
+    previousOrder = order;
+    const spellEntries: AreaCreatureClassSpellEntryState[] = [];
+    for (const rawEntry of candidate.entries) {
+      if (!isPlainRecord(rawEntry) || !hasExactKeys(rawEntry, SPELL_ENTRY_KEYS) ||
+        !isBoundedInteger(rawEntry.spellId, 0, 0xffff) ||
+        !isBoundedInteger(rawEntry.spellMetaMagic, 0, BYTE_MAX) ||
+        !isBoundedInteger(rawEntry.spellFlags, 0, BYTE_MAX) ||
+        !isBoundedInteger(rawEntry.opaqueSiblingFieldCount, 0, MAX_FIELDS)) return null;
+      spellEntries.push(Object.freeze({
+        spellId: Number(rawEntry.spellId),
+        spellMetaMagic: Number(rawEntry.spellMetaMagic),
+        spellFlags: Number(rawEntry.spellFlags),
+        opaqueSiblingFieldCount: Number(rawEntry.opaqueSiblingFieldCount),
+      }));
+    }
+    totalEntries += spellEntries.length;
+    if (totalEntries > MAX_DETAILED_SPELL_ENTRIES) return null;
+    lists.push(Object.freeze({
+      listKind: candidate.listKind,
+      spellLevel: Number(candidate.spellLevel),
+      entries: Object.freeze(spellEntries),
+    }));
+  }
+  return Object.freeze(lists);
+}
+
 export function readAreaCreatureClassIdentityState(
   value: unknown,
 ): AreaCreatureClassIdentityState | null {
@@ -138,30 +229,46 @@ export function readAreaCreatureClassIdentityState(
     return Object.freeze({ present: false });
   }
   const unbound = hasExactKeys(value, BASE_KEYS);
-  const bound = hasExactKeys(value, [...BASE_KEYS, "classesTable"]);
-  if ((!unbound && !bound) || value.present !== true || value.nativeType !== "list" ||
+  const classesBound = hasExactKeys(value, [...BASE_KEYS, "classesTable"]);
+  const spellBound = hasExactKeys(value, [...BASE_KEYS, "classesTable", "spellsTable"]);
+  if ((!unbound && !classesBound && !spellBound) || value.present !== true ||
+    value.nativeType !== "list" ||
     value.structTypeId !== 2 || value.classNativeType !== "int" ||
     value.levelNativeType !== "short" || !isSha256(value.classListGraphSha256) ||
     !Array.isArray(value.entries) || value.entries.length < 1 ||
     value.entries.length > MAX_CLASS_SLOTS) return null;
 
   const entries: AreaCreatureClassIdentityEntry[] = [];
+  let detailedEntryCount = 0;
+  let detailed = true;
   for (const candidate of value.entries) {
-    if (!isPlainRecord(candidate) || !hasExactKeys(candidate, ENTRY_KEYS) ||
+    if (!isPlainRecord(candidate) ||
+      (!hasExactKeys(candidate, ENTRY_KEYS) && !hasExactKeys(candidate, DETAILED_ENTRY_KEYS)) ||
       !isBoundedInteger(candidate.classId, 0, INT_MAX) ||
       !isBoundedInteger(candidate.level, 1, MAX_CLASS_LEVEL) ||
       !isBoundedInteger(candidate.opaqueSiblingFieldCount, 0, MAX_FIELDS) ||
       !isBoundedInteger(candidate.canonicalSpellListFieldCount, 0, 28) ||
       !isBoundedInteger(candidate.spellEntryCount, 0, MAX_SPELL_ENTRIES)) return null;
+    const hasSpellLists = Object.prototype.hasOwnProperty.call(candidate, "spellLists");
+    detailed = detailed && hasSpellLists;
+    const spellLists = hasSpellLists ? readSpellLists(candidate.spellLists) : null;
+    if (hasSpellLists && !spellLists) return null;
+    const spellEntryCount = Number(candidate.spellEntryCount);
+    if (spellLists && (spellLists.length !== Number(candidate.canonicalSpellListFieldCount) ||
+      spellLists.reduce((sum, list) => sum + list.entries.length, 0) !== spellEntryCount)) return null;
+    detailedEntryCount += spellLists?.reduce((sum, list) => sum + list.entries.length, 0) ?? 0;
     entries.push(Object.freeze({
       classId: Number(candidate.classId),
       level: Number(candidate.level),
       opaqueSiblingFieldCount: Number(candidate.opaqueSiblingFieldCount),
       canonicalSpellListFieldCount: Number(candidate.canonicalSpellListFieldCount),
-      spellEntryCount: Number(candidate.spellEntryCount),
+      spellEntryCount,
+      ...(spellLists ? { spellLists } : {}),
     }));
   }
-  if (new Set(entries.map((entry) => entry.classId)).size !== entries.length ||
+  if (entries.some((entry) => Boolean(entry.spellLists) !== detailed) ||
+    detailedEntryCount > MAX_DETAILED_SPELL_ENTRIES ||
+    new Set(entries.map((entry) => entry.classId)).size !== entries.length ||
     entries.reduce((sum, entry) => sum + entry.level, 0) > MAX_TOTAL_LEVEL) return null;
   const base = Object.freeze({
     present: true as const,
@@ -172,10 +279,12 @@ export function readAreaCreatureClassIdentityState(
     classListGraphSha256: value.classListGraphSha256,
     entries: Object.freeze(entries),
   });
-  if (!bound) return base;
+  if (unbound) return base;
   const classesTable = readTable(value.classesTable);
   if (!classesTable || entries.some((entry) => entry.classId >= classesTable.rowCount)) return null;
-  return Object.freeze({ ...base, classesTable });
+  if (classesBound) return Object.freeze({ ...base, classesTable });
+  const spellsTable = readSpellsTable(value.spellsTable);
+  return spellsTable ? Object.freeze({ ...base, classesTable, spellsTable }) : null;
 }
 
 export function bindEffectiveCreatureClassesTwoDaToCreatureClassIdentity(
@@ -192,6 +301,25 @@ export function bindEffectiveCreatureClassesTwoDaToCreatureClassIdentity(
     ...state,
     entries: Object.freeze(state.entries.map((entry) => Object.freeze({ ...entry }))),
     classesTable: Object.freeze({ ...table.descriptor }),
+  });
+}
+
+export function bindEffectiveCreatureClassSpellsTwoDaToCreatureClassIdentity(
+  stateInput: unknown,
+  tableInput: unknown,
+): AreaCreatureClassIdentityState {
+  const state = readAreaCreatureClassIdentityState(stateInput);
+  if (!state) return Object.freeze({ present: false });
+  if (!state.present || !state.classesTable ||
+    !isExactEffectiveCreatureClassSpellsTwoDaTable(tableInput)) return state;
+  const table: EffectiveCreatureClassSpellsTwoDaTable = tableInput;
+  if (table.classesDescriptor.sha256 !== state.classesTable.sha256 ||
+    table.classesDescriptor.rowCount !== state.classesTable.rowCount) return state;
+  return Object.freeze({
+    ...state,
+    entries: Object.freeze(state.entries.map((entry) => Object.freeze({ ...entry }))),
+    classesTable: Object.freeze({ ...state.classesTable }),
+    spellsTable: Object.freeze({ ...table.descriptor }),
   });
 }
 

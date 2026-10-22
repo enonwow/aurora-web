@@ -132,13 +132,13 @@ $frameTitle=Text $frame
 $normalizedFrameTitle=$frameTitle.TrimEnd('*')
 if(-not $normalizedFrameTitle.EndsWith(" - $expectedModule",[StringComparison]::OrdinalIgnoreCase)){throw "toolset_module_title_mismatch:$frameTitle"}
 $frameBounds=Rect $frame
-$script:viewer=[IntPtr]::Zero; $script:toolbar=[IntPtr]::Zero; $script:selectionToolbar=[IntPtr]::Zero; $script:viewport=[IntPtr]::Zero
+$script:viewer=[IntPtr]::Zero; $script:toolbar=[IntPtr]::Zero; $script:selectionToolbar=[IntPtr]::Zero; $script:viewports=@()
 [void][AuroraPaletteProbe]::EnumChildWindows($frame,[AuroraPaletteProbe+EnumWindowsProc]{param($h,$l);$className=Get-ClassValue $h;$title=(Text $h).Trim().TrimStart('-').Trim();$bounds=Rect $h;if([AuroraPaletteProbe]::IsWindowVisible($h)-and$className-eq'TfrmViewerArea'-and$title-eq$expectedArea){$script:viewer=$h};if([AuroraPaletteProbe]::IsWindowVisible($h)-and$className-eq'TToolBar'-and$bounds.left-ge($frameBounds.right-400)-and$bounds.width-ge180-and$bounds.width-le240-and$bounds.height-ge18-and$bounds.height-le28){$script:toolbar=$h};if([AuroraPaletteProbe]::IsWindowVisible($h)-and$className-eq'TToolBar'-and$bounds.width-eq80-and$bounds.height-eq22){$script:selectionToolbar=$h};return $true},[IntPtr]::Zero)
 if($viewer-eq[IntPtr]::Zero){throw 'expected_area_viewer_missing'}
 if($toolbar-eq[IntPtr]::Zero){throw 'main_palette_toolbar_missing'}
 if($selectionToolbar-eq[IntPtr]::Zero){throw 'selection_mode_toolbar_missing'}
-[void][AuroraPaletteProbe]::EnumChildWindows($viewer,[AuroraPaletteProbe+EnumWindowsProc]{param($h,$l);$bounds=Rect $h;if([AuroraPaletteProbe]::IsWindowVisible($h)-and(Get-ClassValue $h)-eq'TScrollBox'-and$bounds.width-ge1000-and$bounds.height-ge700){$script:viewport=$h};return $true},[IntPtr]::Zero)
-if($viewport-eq[IntPtr]::Zero){throw 'area_viewport_missing'}
+[void][AuroraPaletteProbe]::EnumChildWindows($viewer,[AuroraPaletteProbe+EnumWindowsProc]{param($h,$l);$bounds=Rect $h;if([AuroraPaletteProbe]::IsWindowVisible($h)-and(Get-ClassValue $h)-eq'TScrollBox'-and$bounds.width-ge400-and$bounds.height-ge300){$script:viewports+=$h};return $true},[IntPtr]::Zero)
+if($viewports.Count-ne1){throw "area_viewport_ambiguous:$($viewports.Count)"};$viewport=[IntPtr]$viewports[0]
 $x=if($categoryIndex-ge0){$categoryIndex*23+11}else{-1}; $y=11
 if($categoryIndex-ge0){$lParam=[IntPtr](($y-shl16)-bor($x-band0xffff));[void][AuroraPaletteProbe]::SendMessage($toolbar,0x0200,[IntPtr]::Zero,$lParam);[void][AuroraPaletteProbe]::SendMessage($toolbar,0x0201,[IntPtr]1,$lParam);[void][AuroraPaletteProbe]::SendMessage($toolbar,0x0202,[IntPtr]::Zero,$lParam);Start-Sleep -Milliseconds 800}
 $script:trees=@()

@@ -387,6 +387,151 @@ describe("existing Area object planner Creature catalog properties", () => {
       hitPoints,
     }]);
   });
+
+  it("plans an exact confirmed class spell-list clear against the raw graph", () => {
+    const classList: SupportedGffField = {
+      label: "ClassList",
+      type: "list",
+      value: [{
+        typeId: 2,
+        fields: [
+          { label: "Class", type: "int", value: 4 },
+          { label: "ClassLevel", type: "short", value: 3 },
+          { label: "KnownList0", type: "list", value: [] },
+          { label: "Opaque", type: "byte", value: 7 },
+        ],
+      }],
+    };
+    const pair = creatureAreaObjectPair([...placementFields(), classList]);
+    const classSpellClear = {
+      expectedClassIds: [4],
+      expectedLevels: [3],
+      classListGraphSha256: fingerprintAreaCreatureClassListField(classList),
+      classSlotIndices: [0],
+      destructiveSpellClearConfirmed: true as const,
+    };
+
+    expect(planExistingAreaObjectDeletions(
+      pair.git,
+      pair.gic,
+      editing({
+        kind: "creature",
+        sourceObjectId: "obj_cre_display_identity",
+        sourceIndex: 0,
+        classSpellClear,
+      }),
+    ).propertyMutations).toEqual([{
+      kind: "creature",
+      sourceIndex: 0,
+      classSpellClear,
+    }]);
+  });
+
+  it("plans exact confirmed class spell-entry removals against the raw graph", () => {
+    const classList: SupportedGffField = {
+      label: "ClassList",
+      type: "list",
+      value: [{
+        typeId: 2,
+        fields: [
+          { label: "Class", type: "int", value: 1 },
+          { label: "ClassLevel", type: "short", value: 3 },
+          { label: "KnownList0", type: "list", value: [
+            { typeId: 3, fields: [
+              { label: "Spell", type: "word", value: 11 },
+              { label: "SpellMetaMagic", type: "byte", value: 0 },
+              { label: "SpellFlags", type: "byte", value: 1 },
+            ] },
+            { typeId: 3, fields: [
+              { label: "Spell", type: "word", value: 12 },
+              { label: "SpellMetaMagic", type: "byte", value: 2 },
+              { label: "SpellFlags", type: "byte", value: 1 },
+            ] },
+          ] },
+        ],
+      }],
+    };
+    const pair = creatureAreaObjectPair([...placementFields(), classList]);
+    const classSpellRemoval = {
+      expectedClassIds: [1],
+      expectedLevels: [3],
+      classListGraphSha256: fingerprintAreaCreatureClassListField(classList),
+      targets: [
+        { classSlotIndex: 0, listKind: "known" as const, spellLevel: 0, entryIndex: 1 },
+      ],
+      destructiveSpellRemovalConfirmed: true as const,
+    };
+
+    expect(planExistingAreaObjectDeletions(
+      pair.git,
+      pair.gic,
+      editing({
+        kind: "creature",
+        sourceObjectId: "obj_cre_display_identity",
+        sourceIndex: 0,
+        classSpellRemoval,
+      }),
+    ).propertyMutations).toEqual([{
+      kind: "creature",
+      sourceIndex: 0,
+      classSpellRemoval,
+    }]);
+  });
+
+  it("plans exact confirmed same-list spell-entry reorders against the raw graph", () => {
+    const classList: SupportedGffField = {
+      label: "ClassList",
+      type: "list",
+      value: [{
+        typeId: 2,
+        fields: [
+          { label: "Class", type: "int", value: 1 },
+          { label: "ClassLevel", type: "short", value: 3 },
+          { label: "KnownList0", type: "list", value: [
+            { typeId: 3, fields: [
+              { label: "Spell", type: "word", value: 11 },
+              { label: "SpellMetaMagic", type: "byte", value: 0 },
+              { label: "SpellFlags", type: "byte", value: 1 },
+            ] },
+            { typeId: 3, fields: [
+              { label: "Spell", type: "word", value: 12 },
+              { label: "SpellMetaMagic", type: "byte", value: 2 },
+              { label: "SpellFlags", type: "byte", value: 1 },
+              { label: "OpaqueSpell", type: "cexostring", value: "keep" },
+            ] },
+          ] },
+        ],
+      }],
+    };
+    const pair = creatureAreaObjectPair([...placementFields(), classList]);
+    const classSpellReorder = {
+      expectedClassIds: [1],
+      expectedLevels: [3],
+      classListGraphSha256: fingerprintAreaCreatureClassListField(classList),
+      reorders: [{
+        classSlotIndex: 0,
+        listKind: "known" as const,
+        spellLevel: 0,
+        entryOrder: [1, 0],
+      }],
+      spellReorderConfirmed: true as const,
+    };
+
+    expect(planExistingAreaObjectDeletions(
+      pair.git,
+      pair.gic,
+      editing({
+        kind: "creature",
+        sourceObjectId: "obj_cre_display_identity",
+        sourceIndex: 0,
+        classSpellReorder,
+      }),
+    ).propertyMutations).toEqual([{
+      kind: "creature",
+      sourceIndex: 0,
+      classSpellReorder,
+    }]);
+  });
 });
 
 function editing(

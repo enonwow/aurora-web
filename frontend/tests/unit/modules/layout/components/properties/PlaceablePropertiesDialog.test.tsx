@@ -4,6 +4,7 @@ import { buildPlaceablePropertiesDraft } from "../../../../../../src/modules/lay
 import { PlaceablePropertiesDialog } from "../../../../../../src/modules/layout/components/properties/PlaceablePropertiesDialog";
 import { createNewSceneObject } from "../../../../../../src/modules/scene/domain/sceneFactory";
 import type {
+  SceneObjectEditableLocalizedStringEntry,
   SceneObjectPlaceableLocalizedStrings,
   SceneObjectPlaceableScriptSlots
 } from "../../../../../../src/modules/scene/contracts";
@@ -172,6 +173,7 @@ function renderBasicDialog(options: {
   sourceTag?: string;
   provenLocalizedStrings?: SceneObjectPlaceableLocalizedStrings;
   localizedNameTarget?: string;
+  localizedNameEntriesTarget?: readonly SceneObjectEditableLocalizedStringEntry[];
 } = {}) {
   const placeableObject = createNewSceneObject("placeables", 1, 2, 3);
   placeableObject.source = {
@@ -235,7 +237,10 @@ function renderBasicDialog(options: {
       : {}),
     ...(options.localizedNameTarget !== undefined
       ? { localizedName: options.localizedNameTarget }
-      : {})
+      : {}),
+    ...(options.localizedNameEntriesTarget
+      ? { localizedNameEntries: options.localizedNameEntriesTarget }
+      : {}),
   };
   const onChange = vi.fn();
   render(
@@ -552,6 +557,7 @@ function renderLongTextDialog(options: {
   tab: "description" | "comments";
   provenEditorComment?: string;
   provenLocalizedStrings?: SceneObjectPlaceableLocalizedStrings;
+  descriptionEntriesTarget?: readonly SceneObjectEditableLocalizedStringEntry[];
   sourceIndex?: number;
   sourceType?: "seed" | "aurora_git" | "aurora_blueprint";
   sourceKind?: "placeable" | "creature";
@@ -572,6 +578,9 @@ function renderLongTextDialog(options: {
   placeableObject.placeableProperties = {
     ...placeableObject.placeableProperties!,
     description: "Localized gameplay description",
+    ...(options.descriptionEntriesTarget
+      ? { descriptionEntries: options.descriptionEntriesTarget }
+      : {}),
     comments: options.provenEditorComment ?? "preserve editor comment"
   };
   const onChange = vi.fn();
@@ -883,6 +892,71 @@ describe("PlaceablePropertiesDialog", () => {
     expect(name.parentElement).toHaveTextContent("ACTIVE_NOW");
     fireEvent.change(name, { target: { value: " Chest 2 " } });
     expect(onChange).toHaveBeenCalledWith("name", " Chest 2 ");
+  });
+
+  it("edits, reorders, removes, and catalog-adds complete ordered LocName entries", () => {
+    const entries = [
+      { languageId: 42, text: "Retained" },
+      { languageId: 0, text: "Chest" },
+      { languageId: 10, text: "Skrzynia" },
+    ] as const;
+    const onChange = renderBasicDialog({
+      sourceIndex: 0,
+      localizedNameTarget: "Chest",
+      localizedNameEntriesTarget: entries,
+      provenLocalizedStrings: {
+        locName: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [
+            { languageId: 42, textBytesBase64: "UmV0YWluZWQ=" },
+            { languageId: 0, textBytesBase64: "Q2hlc3Q=" },
+            { languageId: 10, textBytesBase64: "U2tyenluaWE=" },
+          ],
+        },
+        description: { present: false },
+      },
+    });
+
+    expect(screen.getByRole("group", { name: "Placeable Name localized entries" }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText("Placeable Name entry 42")).toHaveValue("Retained");
+    expect(screen.getByLabelText("Placeable Name entry 0")).toHaveValue("Chest");
+    expect(screen.getByRole("button", { name: "Remove Placeable Name entry 0" }))
+      .toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Placeable Name entry 42"), {
+      target: { value: "Edited retained" },
+    });
+    expect(onChange).toHaveBeenCalledWith("localizedNameEntries", [
+      { languageId: 42, text: "Edited retained" },
+      { languageId: 0, text: "Chest" },
+      { languageId: 10, text: "Skrzynia" },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Move Placeable Name entry 0 up" }));
+    expect(onChange).toHaveBeenCalledWith("localizedNameEntries", [
+      { languageId: 0, text: "Chest" },
+      { languageId: 42, text: "Retained" },
+      { languageId: 10, text: "Skrzynia" },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Placeable Name entry 42" }));
+    expect(onChange).toHaveBeenCalledWith("localizedNameEntries", [
+      { languageId: 0, text: "Chest" },
+      { languageId: 10, text: "Skrzynia" },
+    ]);
+
+    fireEvent.change(screen.getByLabelText("New Placeable Name entry text"), {
+      target: { value: "Coffre" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add Placeable Name entry" }));
+    expect(onChange).toHaveBeenCalledWith("localizedNameEntries", [
+      { languageId: 42, text: "Retained" },
+      { languageId: 0, text: "Chest" },
+      { languageId: 10, text: "Skrzynia" },
+      { languageId: 2, text: "Coffre" },
+    ]);
   });
 
   it("edits only a physical Appearance row admitted by the exact digest-bound catalog", () => {
@@ -1664,6 +1738,40 @@ describe("PlaceablePropertiesDialog", () => {
     expect(description.parentElement).toHaveTextContent("ACTIVE_NOW");
     fireEvent.change(description, { target: { value: " Storage room " } });
     expect(onChange).toHaveBeenCalledWith("description", " Storage room ");
+  });
+
+  it("exposes the complete ordered inline-ASCII Description entry list", () => {
+    const onChange = renderLongTextDialog({
+      tab: "description",
+      sourceIndex: 0,
+      descriptionEntriesTarget: [
+        { languageId: 0, text: "Localized gameplay description" },
+        { languageId: 11, text: "Opis" },
+      ],
+      provenLocalizedStrings: {
+        locName: { present: false },
+        description: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [
+            {
+              languageId: 0,
+              textBytesBase64: "TG9jYWxpemVkIGdhbWVwbGF5IGRlc2NyaXB0aW9u",
+            },
+            { languageId: 11, textBytesBase64: "T3Bpcw==" },
+          ],
+        },
+      },
+    });
+    expect(screen.getByRole("group", { name: "Placeable Description localized entries" }))
+      .toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Placeable Description entry 11"), {
+      target: { value: "Storage room" },
+    });
+    expect(onChange).toHaveBeenCalledWith("descriptionEntries", [
+      { languageId: 0, text: "Localized gameplay description" },
+      { languageId: 11, text: "Storage room" },
+    ]);
   });
 
   it("keeps gameplay Description disabled and preserve-only without admitted provenance", () => {

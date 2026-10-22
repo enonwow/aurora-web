@@ -1491,6 +1491,7 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
             sourceModelAssetId: light.sourceModelAssetId,
             sourceModelFileName: light.sourceModelFileName,
             sourceModelObjectKey: light.sourceModelObjectKey,
+            sourceModelHash: light.sourceModelHash,
             nodeName: light.nodeName,
             sourceNodeKind: light.sourceNodeKind,
             parentNodeName: light.parentNodeName,

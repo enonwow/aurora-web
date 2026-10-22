@@ -1410,6 +1410,61 @@ describe("Aurora GIT/GIC object pair writer", () => {
       });
   });
 
+  it("writes an exact ordered Placeable localized-string target list", () => {
+    const pair = fixturePair();
+    const sourceGit = withSecondPlaceableFields(pair.git, (fields) => [
+      ...fields,
+      {
+        label: "LocName",
+        type: "cexolocstring",
+        value: {
+          strRef: 0xffff_ffff,
+          entries: [
+            { languageId: 0, text: "Chest" },
+            { languageId: 2, text: "Coffre" },
+          ],
+        },
+      },
+    ]);
+    const result = mutateExistingAreaObjectsInGitGic({
+      sourceGit,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "placeable",
+        sourceIndex: 1,
+        localizedStrings: [{
+          field: "LocName",
+          expectedValue: "Chest",
+          value: "Chest",
+          expectedProfile: "multi_entry_inline_ascii",
+          expectedEntries: [
+            { languageId: 0, text: "Chest" },
+            { languageId: 2, text: "Coffre" },
+          ],
+          valueEntries: [
+            { languageId: 10, text: "Skrzynia" },
+            { languageId: 0, text: "Chest" },
+          ],
+        }],
+      } as never],
+    });
+
+    expect(result.gicBytes).toEqual(pair.gic);
+    expect(list(parseRawGffDocument(result.gitBytes), "Placeable List")!.value[1]!.fields)
+      .toContainEqual({
+        label: "LocName",
+        type: "cexolocstring",
+        value: {
+          strRef: 0xffff_ffff,
+          entries: [
+            { languageId: 10, text: "Skrzynia" },
+            { languageId: 0, text: "Chest" },
+          ],
+        },
+      });
+  });
+
   it.each([
     ["non-array", null],
     ["empty", []],
@@ -3059,6 +3114,218 @@ describe("Aurora GIT/GIC object pair writer", () => {
     expect(repeated.gicBytes).toEqual(result.gicBytes);
   });
 
+  it("replaces one complete retained Trigger core-properties tuple in place and preserves every sibling and GIC byte", () => {
+    const pair = fixturePair();
+    const source = parseRawGffDocument(pair.git)!;
+    const sourceEntry = list(source, "TriggerList")!.value[0]!;
+    sourceEntry.fields.splice(1, 0, ...triggerCorePropertyFields());
+    const sourceGit = buildGffBuffer(source.fields, "GIT ", source.rootStructTypeId);
+    const expectedGit = parseRawGffDocument(sourceGit)!;
+    const expectedEntry = list(expectedGit, "TriggerList")!.value[0]!;
+    const expectedValue = triggerCoreProperties();
+    const value = {
+      autoRemoveKey: 1 as const,
+      factionId: 2,
+      cursorId: 3,
+      highlightHeight: Math.fround(1.5),
+      keyName: "gate_key",
+      portraitId: 4,
+      triggerType: 1,
+    };
+    const replacements = new Map<string, string | number>([
+      ["AutoRemoveKey", value.autoRemoveKey],
+      ["Faction", value.factionId],
+      ["Cursor", value.cursorId],
+      ["HighlightHeight", value.highlightHeight],
+      ["KeyName", value.keyName],
+      ["PortraitId", value.portraitId],
+      ["Type", value.triggerType],
+    ]);
+    expectedEntry.fields = expectedEntry.fields.map((field) => replacements.has(field.label)
+      ? { ...field, value: replacements.get(field.label)! } as SupportedGffField
+      : field);
+
+    const input = {
+      sourceGit,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "trigger",
+        sourceIndex: 0,
+        coreProperties: { expectedValue, value },
+      } as never],
+    };
+    const result = mutateExistingAreaObjectsInGitGic(input);
+    const repeated = mutateExistingAreaObjectsInGitGic(input);
+
+    expect(parseRawGffDocument(result.gitBytes)).toEqual(expectedGit);
+    expect(result.gicBytes).toEqual(pair.gic);
+    expect(result.propertyUpdatedCounts).toMatchObject({ trigger: 1 });
+    expect(repeated.gitBytes).toEqual(result.gitBytes);
+    expect(repeated.gicBytes).toEqual(result.gicBytes);
+  });
+
+  it.each([
+    [
+      "wrong type",
+      (fields: SupportedGffField[]) => fields.map((field) => field.label === "Cursor"
+        ? { label: "Cursor", type: "word" as const, value: 0 }
+        : field),
+      triggerCoreProperties(),
+      "trigger:index=0:Cursor:count=1:type=word",
+    ],
+    [
+      "duplicate",
+      (fields: SupportedGffField[]) => [
+        ...fields,
+        { label: "PortraitId", type: "word" as const, value: 0 },
+      ],
+      triggerCoreProperties(),
+      "trigger:index=0:PortraitId:count=2:type=word",
+    ],
+    [
+      "stale expected value",
+      (fields: SupportedGffField[]) => fields,
+      { ...triggerCoreProperties(), factionId: 42 },
+      "trigger:index=0:coreProperties:stale_storage",
+    ],
+  ])("rejects a retained Trigger core-properties mutation with %s", (
+    _label,
+    mutateFields,
+    expectedValue,
+    diagnostic,
+  ) => {
+    const pair = fixturePair();
+    const source = parseRawGffDocument(pair.git)!;
+    const trigger = list(source, "TriggerList")!.value[0]!;
+    trigger.fields.splice(1, 0, ...triggerCorePropertyFields());
+    trigger.fields = mutateFields(trigger.fields);
+    const sourceGit = buildGffBuffer(source.fields, "GIT ", source.rootStructTypeId);
+
+    expect(pairError(() => mutateExistingAreaObjectsInGitGic({
+      sourceGit,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "trigger",
+        sourceIndex: 0,
+        coreProperties: {
+          expectedValue,
+          value: { ...triggerCoreProperties(), autoRemoveKey: 1 },
+        },
+      } as never],
+    }))).toMatchObject({
+      code: "AREA_UPDATE_OBJECT_MUTATION_INVALID",
+      diagnostics: [diagnostic],
+    });
+  });
+
+  it("replaces one complete retained Trigger trap-properties tuple in place and preserves every sibling and GIC byte", () => {
+    const pair = fixturePair();
+    const source = parseRawGffDocument(pair.git)!;
+    const sourceEntry = list(source, "TriggerList")!.value[0]!;
+    sourceEntry.fields.splice(1, 0, ...triggerTrapPropertyFields());
+    const sourceGit = buildGffBuffer(source.fields, "GIT ", source.rootStructTypeId);
+    const expectedGit = parseRawGffDocument(sourceGit)!;
+    const expectedEntry = list(expectedGit, "TriggerList")!.value[0]!;
+    const expectedValue = triggerTrapProperties();
+    const value = {
+      trapDetectable: 0,
+      trapDetectDc: 17,
+      trapDisarmable: 0,
+      disarmDc: 23,
+      trapFlag: 1,
+      trapOneShot: 0,
+      trapType: 7,
+    };
+    const replacements = new Map<string, number>([
+      ["TrapDetectable", value.trapDetectable],
+      ["TrapDetectDC", value.trapDetectDc],
+      ["TrapDisarmable", value.trapDisarmable],
+      ["DisarmDC", value.disarmDc],
+      ["TrapFlag", value.trapFlag],
+      ["TrapOneShot", value.trapOneShot],
+      ["TrapType", value.trapType],
+    ]);
+    expectedEntry.fields = expectedEntry.fields.map((field) => replacements.has(field.label)
+      ? { ...field, value: replacements.get(field.label)! } as SupportedGffField
+      : field);
+
+    const input = {
+      sourceGit,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "trigger",
+        sourceIndex: 0,
+        trapProperties: { expectedValue, value },
+      } as never],
+    };
+    const result = mutateExistingAreaObjectsInGitGic(input);
+    const repeated = mutateExistingAreaObjectsInGitGic(input);
+
+    expect(parseRawGffDocument(result.gitBytes)).toEqual(expectedGit);
+    expect(result.gicBytes).toEqual(pair.gic);
+    expect(result.propertyUpdatedCounts).toMatchObject({ trigger: 1 });
+    expect(repeated.gitBytes).toEqual(result.gitBytes);
+    expect(repeated.gicBytes).toEqual(result.gicBytes);
+  });
+
+  it.each([
+    [
+      "wrong type",
+      (fields: SupportedGffField[]) => fields.map((field) => field.label === "TrapType"
+        ? { label: "TrapType", type: "word" as const, value: 0 }
+        : field),
+      triggerTrapProperties(),
+      "trigger:index=0:TrapType:count=1:type=word",
+    ],
+    [
+      "duplicate",
+      (fields: SupportedGffField[]) => [
+        ...fields,
+        { label: "TrapFlag", type: "byte" as const, value: 0 },
+      ],
+      triggerTrapProperties(),
+      "trigger:index=0:TrapFlag:count=2:type=byte",
+    ],
+    [
+      "stale expected value",
+      (fields: SupportedGffField[]) => fields,
+      { ...triggerTrapProperties(), disarmDc: 42 },
+      "trigger:index=0:trapProperties:stale_storage",
+    ],
+  ])("rejects a retained Trigger trap-properties mutation with %s", (
+    _label,
+    mutateFields,
+    expectedValue,
+    diagnostic,
+  ) => {
+    const pair = fixturePair();
+    const source = parseRawGffDocument(pair.git)!;
+    const trigger = list(source, "TriggerList")!.value[0]!;
+    trigger.fields.splice(1, 0, ...triggerTrapPropertyFields());
+    trigger.fields = mutateFields(trigger.fields);
+    const sourceGit = buildGffBuffer(source.fields, "GIT ", source.rootStructTypeId);
+
+    expect(pairError(() => mutateExistingAreaObjectsInGitGic({
+      sourceGit,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "trigger",
+        sourceIndex: 0,
+        trapProperties: {
+          expectedValue,
+          value: { ...triggerTrapProperties(), trapFlag: 1 },
+        },
+      } as never],
+    }))).toMatchObject({
+      code: "AREA_UPDATE_OBJECT_MUTATION_INVALID",
+      diagnostics: [diagnostic],
+    });
+  });
+
   it.each([
     [
       "wrong type",
@@ -4458,6 +4725,71 @@ describe("Aurora GIT/GIC object pair writer", () => {
     });
     expect(result.gicBytes).toEqual(pair.gic);
     expect(result.propertyUpdatedCounts.item).toBe(1);
+    expect(mutateExistingAreaObjectsInGitGic(input).gitBytes).toEqual(result.gitBytes);
+  });
+
+  it("replaces a complete ordered ground-item localized-string entry list in place", () => {
+    const pair = fixturePair();
+    const sourceDocument = parseRawGffDocument(pair.git)!;
+    const sourceItem = list(sourceDocument, "List")!.value[1]!;
+    sourceItem.fields.splice(1, 0, {
+      label: "LocalizedName",
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 42, text: "Legacy" },
+          { languageId: 0, text: "Sword" },
+        ],
+      },
+    });
+    const sourceGit = buildGffBuffer(
+      sourceDocument.fields,
+      "GIT ",
+      sourceDocument.rootStructTypeId,
+    );
+    const localizedStrings = [{
+      field: "LocalizedName",
+      expectedValue: "Sword",
+      value: "Sword 2",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Sword" },
+      ],
+      valueEntries: [
+        { languageId: 0, text: "Sword 2" },
+        { languageId: 2, text: "Epee" },
+        { languageId: 42, text: "Legacy 2" },
+      ],
+    }];
+    const input = {
+      sourceGit,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "item",
+        sourceIndex: 1,
+        localizedStrings,
+      } as never],
+    };
+
+    const result = mutateExistingAreaObjectsInGitGic(input);
+    const candidate = list(parseRawGffDocument(result.gitBytes), "List")!.value[1]!;
+
+    expect(candidate.fields.find((field) => field.label === "LocalizedName")).toEqual({
+      label: "LocalizedName",
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 0, text: "Sword 2" },
+          { languageId: 2, text: "Epee" },
+          { languageId: 42, text: "Legacy 2" },
+        ],
+      },
+    });
+    expect(result.gicBytes).toEqual(pair.gic);
     expect(mutateExistingAreaObjectsInGitGic(input).gitBytes).toEqual(result.gitBytes);
   });
 
@@ -11715,6 +12047,63 @@ describe("Aurora GIT/GIC object pair writer", () => {
     expect(result.propertyUpdatedCounts.creature).toBe(1);
   });
 
+  it("rewrites a complete ordered Creature localized-string list and preserves exact order", () => {
+    const pair = fixturePair();
+    const sourceGit = withCreatureNameLocalizedStringFields(pair.git, [{
+      label: "FirstName",
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 42, text: "Legacy" },
+          { languageId: 0, text: "Guard" },
+        ],
+      },
+    }]);
+    const result = mutateExistingAreaObjectsInGitGic({
+      sourceGit,
+      sourceGic: pair.gic,
+      deletions: [],
+      propertyMutations: [{
+        kind: "creature",
+        sourceIndex: 0,
+        localizedStrings: [{
+          field: "FirstName",
+          expectedValue: "Guard",
+          value: "Captain",
+          expectedProfile: "multi_entry_inline_ascii",
+          expectedEntries: [
+            { languageId: 42, text: "Legacy" },
+            { languageId: 0, text: "Guard" },
+          ],
+          valueEntries: [
+            { languageId: 0, text: "Captain" },
+            { languageId: 2, text: "Capitaine" },
+            { languageId: 42, text: "Legacy 2" },
+          ],
+        }],
+      } as never],
+    });
+
+    const candidateCreature = list(
+      parseRawGffDocument(result.gitBytes),
+      "Creature List",
+    )!.value[0]!;
+    expect(candidateCreature.fields.find((field) => field.label === "FirstName")).toEqual({
+      label: "FirstName",
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 0, text: "Captain" },
+          { languageId: 2, text: "Capitaine" },
+          { languageId: 42, text: "Legacy 2" },
+        ],
+      },
+    });
+    expect(result.gicBytes).toEqual(pair.gic);
+  });
+
   it.each([
     ["missing field", [], "Guard", "creature:index=0:FirstName:count=0:type=missing"],
     ["wrong-case label", [{ label: "firstname", type: "cexolocstring" as const, value: {
@@ -12754,6 +13143,56 @@ function triggerTransitionStorage() {
     linkedToFlags: 1,
     loadScreenId: 0,
   };
+}
+
+function triggerCoreProperties() {
+  return {
+    autoRemoveKey: 0 as const,
+    factionId: 1,
+    cursorId: 0,
+    highlightHeight: Math.fround(0),
+    keyName: "",
+    portraitId: 0,
+    triggerType: 0,
+  };
+}
+
+function triggerCorePropertyFields(): SupportedGffField[] {
+  const value = triggerCoreProperties();
+  return [
+    { label: "AutoRemoveKey", type: "byte", value: value.autoRemoveKey },
+    { label: "Faction", type: "dword", value: value.factionId },
+    { label: "Cursor", type: "byte", value: value.cursorId },
+    { label: "HighlightHeight", type: "float", value: value.highlightHeight },
+    { label: "KeyName", type: "cexostring", value: value.keyName },
+    { label: "PortraitId", type: "word", value: value.portraitId },
+    { label: "Type", type: "int", value: value.triggerType },
+  ];
+}
+
+function triggerTrapProperties() {
+  return {
+    trapDetectable: 1,
+    trapDetectDc: 0,
+    trapDisarmable: 1,
+    disarmDc: 15,
+    trapFlag: 0,
+    trapOneShot: 1,
+    trapType: 0,
+  };
+}
+
+function triggerTrapPropertyFields(): SupportedGffField[] {
+  const value = triggerTrapProperties();
+  return [
+    { label: "TrapDetectable", type: "byte", value: value.trapDetectable },
+    { label: "TrapDetectDC", type: "byte", value: value.trapDetectDc },
+    { label: "TrapDisarmable", type: "byte", value: value.trapDisarmable },
+    { label: "DisarmDC", type: "byte", value: value.disarmDc },
+    { label: "TrapFlag", type: "byte", value: value.trapFlag },
+    { label: "TrapOneShot", type: "byte", value: value.trapOneShot },
+    { label: "TrapType", type: "byte", value: value.trapType },
+  ];
 }
 
 function triggerScriptFields(): SupportedGffField[] {

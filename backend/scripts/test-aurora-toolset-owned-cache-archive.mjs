@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { assertCacheInventory, assertArchiveLineage } from './lib/aurora-toolset-owned-cache-archive.mjs';
+const resources=[{name:'module.ifo',sha256:'a'},{name:'loop.nss',sha256:'b'}];
+assert.doesNotThrow(()=>assertCacheInventory(resources,resources));
+for(const actual of [resources.slice(1),[...resources,{name:'unsaved.nss',sha256:'c'}],[resources[0],{name:'loop.nss',sha256:'changed'}]]) assert.throws(()=>assertCacheInventory(resources,actual));
+const failed={status:'failed',blockerCode:'toolset_temp0_requires_clean_start',module:{path:'C:/NWN/modules/demo.mod',sha256:'new'},openFailure:{postChildProcesses:[],child:{blockerCode:'toolset_temp0_requires_clean_start'}}};
+const owner={status:'module_ready',module:{path:'C:/NWN/modules/demo.mod',sha256:'old'},open:{process:{Id:123,StartTimeUtc:'2026-09-07T19:00:00.000Z'}}};
+assert.doesNotThrow(()=>assertArchiveLineage(failed,owner,'old',[]));
+assert.throws(()=>assertArchiveLineage(failed,owner,'wrong',[]));
+assert.throws(()=>assertArchiveLineage(failed,owner,'old',[{Id:123}]));
+assert.throws(()=>assertArchiveLineage({...failed,blockerCode:'anything_else'},owner,'old',[]));
+assert.throws(()=>assertArchiveLineage({...failed,openFailure:{...failed.openFailure,postChildProcesses:[{Id:1}]}},owner,'old',[]));
+console.log('owned cache archive admission: 9 positive/negative checks passed');

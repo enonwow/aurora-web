@@ -17,6 +17,10 @@ import { cloneTriggerScriptResRefsStorage } from
   "../../scene/domain/triggerScriptResRefs";
 import { cloneTriggerTransitionStorage } from
   "../../scene/domain/triggerTransitionStorage";
+import { cloneTriggerCoreProperties } from
+  "../../scene/domain/triggerCoreProperties";
+import { cloneTriggerTrapProperties } from
+  "../../scene/domain/triggerTrapProperties";
 import { cloneWaypointLocalizedNameStorage } from
   "../../scene/domain/waypointLocalizedName";
 import { cloneWaypointDescriptionStorage } from
@@ -72,6 +76,15 @@ export function cloneSceneObjectCreatureProperties(
   return properties
     ? {
       ...properties,
+        firstNameEntries: properties.firstNameEntries
+          ? properties.firstNameEntries.map((entry) => ({ ...entry }))
+          : undefined,
+        lastNameEntries: properties.lastNameEntries
+          ? properties.lastNameEntries.map((entry) => ({ ...entry }))
+          : undefined,
+        descriptionEntries: properties.descriptionEntries
+          ? properties.descriptionEntries.map((entry) => ({ ...entry }))
+          : undefined,
         statistics: properties.statistics
           ? {
               ...properties.statistics,
@@ -104,6 +117,18 @@ export function cloneSceneObjectCreatureProperties(
           : undefined,
         classEntries: properties.classEntries
           ? properties.classEntries.map((entry) => ({ ...entry }))
+          : undefined,
+        classSpellClearSlotIndices: properties.classSpellClearSlotIndices
+          ? [...properties.classSpellClearSlotIndices]
+          : undefined,
+        classSpellRemovalTargets: properties.classSpellRemovalTargets
+          ? properties.classSpellRemovalTargets.map((target) => ({ ...target }))
+          : undefined,
+        classSpellReorders: properties.classSpellReorders
+          ? properties.classSpellReorders.map((reorder) => ({
+              ...reorder,
+              entryOrder: [...reorder.entryOrder],
+            }))
           : undefined,
         templateEntries: properties.templateEntries
           ? properties.templateEntries.map((entry) => ({ ...entry }))
@@ -180,6 +205,15 @@ export function cloneSceneObjectItemProperties(
           ? { ...properties.armorPartCostModifiers }
           : undefined,
         materialColors: properties.materialColors ? { ...properties.materialColors } : undefined,
+        localizedNameEntries: properties.localizedNameEntries
+          ? properties.localizedNameEntries.map((entry) => ({ ...entry }))
+          : undefined,
+        descriptionEntries: properties.descriptionEntries
+          ? properties.descriptionEntries.map((entry) => ({ ...entry }))
+          : undefined,
+        identifiedDescriptionEntries: properties.identifiedDescriptionEntries
+          ? properties.identifiedDescriptionEntries.map((entry) => ({ ...entry }))
+          : undefined,
         propertyList: properties.propertyList
           ? properties.propertyList.map((entry) => ({ ...entry }))
           : undefined,
@@ -591,6 +625,19 @@ export function cloneSceneObject(object: SceneObject): SceneObject {
           triggerTransitionStorage: object.source.triggerTransitionStorage
             ? cloneTriggerTransitionStorage(object.source.triggerTransitionStorage)
             : undefined,
+          triggerCoreProperties: object.source.triggerCoreProperties
+            ? cloneTriggerCoreProperties(object.source.triggerCoreProperties)
+            : undefined,
+          triggerTrapProperties: object.source.triggerTrapProperties
+            ? cloneTriggerTrapProperties(object.source.triggerTrapProperties)
+            : undefined,
+          triggerVariables: object.source.triggerVariables
+            ? {
+                expectedEntries: object.source.triggerVariables.expectedEntries.map(
+                  (entry) => ({ ...entry }),
+                ),
+              }
+            : undefined,
           encounterTag: object.source.encounterTag
             ? { ...object.source.encounterTag }
             : undefined,
@@ -827,6 +874,12 @@ export function cloneSceneObject(object: SceneObject): SceneObject {
             : undefined,
           variables: object.placeableProperties.variables
             ? object.placeableProperties.variables.map((entry) => ({ ...entry }))
+            : undefined,
+          localizedNameEntries: object.placeableProperties.localizedNameEntries
+            ? object.placeableProperties.localizedNameEntries.map((entry) => ({ ...entry }))
+            : undefined,
+          descriptionEntries: object.placeableProperties.descriptionEntries
+            ? object.placeableProperties.descriptionEntries.map((entry) => ({ ...entry }))
             : undefined
         }
       : undefined,
@@ -936,6 +989,15 @@ export function cloneSceneObject(object: SceneObject): SceneObject {
       : undefined,
     triggerTransitionStorage: object.triggerTransitionStorage
       ? cloneTriggerTransitionStorage(object.triggerTransitionStorage)
+      : undefined,
+    triggerCoreProperties: object.triggerCoreProperties
+      ? cloneTriggerCoreProperties(object.triggerCoreProperties)
+      : undefined,
+    triggerTrapProperties: object.triggerTrapProperties
+      ? cloneTriggerTrapProperties(object.triggerTrapProperties)
+      : undefined,
+    triggerVariables: object.triggerVariables
+      ? object.triggerVariables.map((entry) => ({ ...entry }))
       : undefined,
     soundPlayOrder: object.soundPlayOrder
       ? cloneAreaSoundPlayOrderStorage(object.soundPlayOrder)

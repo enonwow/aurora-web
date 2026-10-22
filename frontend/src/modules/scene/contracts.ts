@@ -22,6 +22,8 @@ import type { AreaStoreScriptResRefsValue } from "./domain/storeScriptResRefs";
 import type { EncounterScriptResRefsStorage } from "./domain/encounterScriptResRefs";
 import type { TriggerScriptResRefsStorage } from "./domain/triggerScriptResRefs";
 import type { TriggerTransitionStorage } from "./domain/triggerTransitionStorage";
+import type { TriggerCoreProperties } from "./domain/triggerCoreProperties";
+import type { TriggerTrapProperties } from "./domain/triggerTrapProperties";
 import type {
   AreaStoreRestrictionsProvenance,
   AreaStoreRestrictionsTarget,
@@ -50,6 +52,16 @@ export type SceneObjectKind =
   | "stores"
   | "triggers"
   | "waypoints";
+
+export type SceneObjectInlineAsciiLocalizedStringProfile =
+  | "empty_inline_ascii"
+  | "simple_inline_ascii"
+  | "multi_entry_inline_ascii";
+
+export interface SceneObjectEditableLocalizedStringEntry {
+  readonly languageId: number;
+  readonly text: string;
+}
 
 export interface SceneObjectPlaceableProperties {
   // Runtime normalization enforces boolean defaults for legacy/corrupted payloads.
@@ -83,7 +95,9 @@ export interface SceneObjectPlaceableProperties {
   variables?: SceneObjectPlaceableVariableTargetEntry[];
   // Aurora-first parity: description/comments tab payload.
   localizedName?: string;
+  localizedNameEntries?: readonly SceneObjectEditableLocalizedStringEntry[];
   description?: string;
+  descriptionEntries?: readonly SceneObjectEditableLocalizedStringEntry[];
   comments?: string;
 }
 
@@ -405,6 +419,20 @@ export interface SceneObjectCreatureSpecialAbilityEntry {
   uses: number;
 }
 
+export interface SceneObjectCreatureClassSpellRemovalTarget {
+  readonly classSlotIndex: number;
+  readonly listKind: "known" | "memorized";
+  readonly spellLevel: number;
+  readonly entryIndex: number;
+}
+
+export interface SceneObjectCreatureClassSpellReorder {
+  readonly classSlotIndex: number;
+  readonly listKind: "known" | "memorized";
+  readonly spellLevel: number;
+  readonly entryOrder: readonly number[];
+}
+
 export type SceneObjectCreatureVariableEntry =
   | { name: string; type: "int"; value: number }
   | { name: string; type: "float"; value: number }
@@ -414,6 +442,7 @@ export type SceneObjectPlaceableVariableTargetEntry = SceneObjectCreatureVariabl
 export type SceneObjectCreatureVariableTargetEntry = SceneObjectCreatureVariableEntry;
 export type SceneObjectEncounterVariableTargetEntry = SceneObjectCreatureVariableEntry;
 export type SceneObjectWaypointVariableTargetEntry = SceneObjectCreatureVariableEntry;
+export type SceneObjectTriggerVariableTargetEntry = SceneObjectCreatureVariableEntry;
 export type SceneObjectItemVariableTargetEntry = SceneObjectCreatureVariableEntry;
 export type SceneObjectStoreVariableTargetEntry = SceneObjectCreatureVariableEntry;
 
@@ -443,6 +472,13 @@ export type SceneObjectWaypointVariableSourceEntry =
 
 export interface SceneObjectWaypointVariableProvenance {
   readonly expectedEntries: readonly SceneObjectWaypointVariableSourceEntry[];
+}
+
+export type SceneObjectTriggerVariableSourceEntry =
+  SceneObjectTriggerVariableTargetEntry & Readonly<{ sourceIndex: number }>;
+
+export interface SceneObjectTriggerVariableProvenance {
+  readonly expectedEntries: readonly SceneObjectTriggerVariableSourceEntry[];
 }
 
 export type SceneObjectItemVariableSourceEntry =
@@ -657,7 +693,9 @@ export interface SceneObjectCreatureAdvancedSettings {
 
 export interface SceneObjectCreatureProperties {
   firstName: string;
+  firstNameEntries?: readonly SceneObjectEditableLocalizedStringEntry[];
   lastName: string;
+  lastNameEntries?: readonly SceneObjectEditableLocalizedStringEntry[];
   race: string;
   appearance: string;
   appearanceType?: number;
@@ -666,6 +704,7 @@ export interface SceneObjectCreatureProperties {
   gender: string;
   genderId?: number;
   description: string;
+  descriptionEntries?: readonly SceneObjectEditableLocalizedStringEntry[];
   challengeRating: number;
   portraitResRef: string;
   portraitId?: number;
@@ -682,6 +721,12 @@ export interface SceneObjectCreatureProperties {
   classEntries?: SceneObjectCreatureClassEntry[];
   classIdentityDestructiveSpellClearConfirmed?: boolean;
   classSlotResizeDestructiveRemovalConfirmed?: boolean;
+  classSpellClearSlotIndices?: readonly number[];
+  classSpellClearConfirmed?: boolean;
+  classSpellRemovalTargets?: readonly SceneObjectCreatureClassSpellRemovalTarget[];
+  classSpellRemovalConfirmed?: boolean;
+  classSpellReorders?: readonly SceneObjectCreatureClassSpellReorder[];
+  classSpellReorderConfirmed?: boolean;
   templateEntries?: SceneObjectCreatureTemplateEntry[];
   skills?: SceneObjectCreatureSkillEntry[];
   skillListTruncationConfirmed?: boolean;
@@ -1365,10 +1410,13 @@ export interface SceneObjectItemModelAssetCandidate {
 
 export interface SceneObjectItemProperties {
   localizedName?: string;
+  localizedNameEntries?: readonly SceneObjectEditableLocalizedStringEntry[];
   localizedNameStrRef?: number;
   description?: string;
+  descriptionEntries?: readonly SceneObjectEditableLocalizedStringEntry[];
   descriptionStrRef?: number;
   identifiedDescription?: string;
+  identifiedDescriptionEntries?: readonly SceneObjectEditableLocalizedStringEntry[];
   identifiedDescriptionStrRef?: number;
   comments?: string;
   paletteId?: number;
@@ -1874,6 +1922,20 @@ export interface SceneObjectCreatureClassIdentityEntry {
   readonly opaqueSiblingFieldCount: number;
   readonly canonicalSpellListFieldCount: number;
   readonly spellEntryCount: number;
+  readonly spellLists?: readonly SceneObjectCreatureClassSpellListState[];
+}
+
+export interface SceneObjectCreatureClassSpellEntryState {
+  readonly spellId: number;
+  readonly spellMetaMagic: number;
+  readonly spellFlags: number;
+  readonly opaqueSiblingFieldCount: number;
+}
+
+export interface SceneObjectCreatureClassSpellListState {
+  readonly listKind: "known" | "memorized";
+  readonly spellLevel: number;
+  readonly entries: readonly SceneObjectCreatureClassSpellEntryState[];
 }
 
 export interface SceneObjectCreatureClassesTable {
@@ -2376,6 +2438,9 @@ export interface SceneObjectSourceMetadata {
   triggerEditorComment?: string;
   triggerScriptResRefsStorage?: SceneObjectTriggerScriptResRefsStorage;
   triggerTransitionStorage?: TriggerTransitionStorage;
+  triggerCoreProperties?: TriggerCoreProperties;
+  triggerTrapProperties?: TriggerTrapProperties;
+  triggerVariables?: SceneObjectTriggerVariableProvenance;
   encounterTag?: SceneObjectEncounterTagStorage;
   encounterTemplateResRef?: SceneObjectEncounterTemplateResRefStorage;
   waypointTag?: SceneObjectWaypointTagStorage;
@@ -2512,6 +2577,9 @@ export interface SceneObject {
   triggerEditorComment?: string;
   triggerScriptResRefs?: SceneObjectTriggerScriptResRefsStorage;
   triggerTransitionStorage?: TriggerTransitionStorage;
+  triggerCoreProperties?: TriggerCoreProperties;
+  triggerTrapProperties?: TriggerTrapProperties;
+  triggerVariables?: SceneObjectTriggerVariableTargetEntry[];
   waypointLocalizedName?: string;
   waypointTemplateResRef?: string;
   waypointDescription?: string;

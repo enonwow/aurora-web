@@ -4,6 +4,12 @@ Date: 2026-09-02
 Status: source-closed; bounded offline implementation verified; live
 certification and full multilingual editing pending
 
+Superseding note (2026-09-13): complete ordered inline printable-ASCII
+Description entry editing is implemented and governed by
+`area-existing-creature-ordered-inline-localized-string-editor-audit-v1-2026-09-13.md`.
+This audit remains the authority for the original scalar profile and native
+Description lineage.
+
 ## Decision
 
 Aurora Web may retain the complete exact native `Description : CExoLocString`
@@ -156,9 +162,10 @@ builds pass. The full parser file still exposes two separately tracked Item
 metadata fixture failures; neither failure crosses the Creature Description
 path, and the focused Creature parser gate remains green.
 
-This slice does not close the full Creature matrix. Full multilingual editing
-for all three Creature localized strings remains
-`creature_full_localized_string_editor_pending`. Body-part/color/wings/tail
+This slice does not close the full Creature matrix. The superseding ordered-
+inline audit narrows the remaining multilingual work to
+`creature_tlk_codepage_and_unresolved_language_entry_authoring_pending`.
+Body-part/color/wings/tail
 authoring, the coupled `CRAdjust` calculator, arbitrary class spell graphs,
 special abilities, and existing live browser/Toolset/NWN gates remain separate
 work. Creature authoring therefore remains `PARTIAL/BLOCKED`.

@@ -273,6 +273,22 @@ function withExactItemInstanceState(item: SceneObject): SceneObject {
 function withExactItemLocalizedStrings(item: SceneObject): SceneObject {
   return {
     ...item,
+    itemProperties: {
+      ...item.itemProperties,
+      localizedNameEntries: [
+        { languageId: 42, text: "Legacy name" },
+        { languageId: 0, text: "Custom Hide Armor" },
+        { languageId: 10, text: "Polska nazwa" },
+      ],
+      descriptionEntries: [
+        { languageId: 0, text: "Description" },
+        { languageId: 2, text: "Beschreibung" },
+      ],
+      identifiedDescriptionEntries: [
+        { languageId: 0, text: "Identified" },
+        { languageId: 10, text: "Rozpoznany opis" },
+      ],
+    },
     source: {
       type: "aurora_git",
       sourceKind: "item",
@@ -282,7 +298,11 @@ function withExactItemLocalizedStrings(item: SceneObject): SceneObject {
         localizedName: {
           present: true,
           strRef: 0xffff_ffff,
-          entries: [{ languageId: 0, textBytesBase64: "Q3VzdG9tIEhpZGUgQXJtb3I=" }],
+          entries: [
+            { languageId: 42, textBytesBase64: "TGVnYWN5IG5hbWU=" },
+            { languageId: 0, textBytesBase64: "Q3VzdG9tIEhpZGUgQXJtb3I=" },
+            { languageId: 10, textBytesBase64: "UG9sc2thIG5hendh" },
+          ],
         },
         description: {
           present: true,
@@ -514,6 +534,59 @@ describe("ItemPropertiesDialog", () => {
       .toHaveBeenCalledWith("description", " exact description ");
     expect(commentsHandlers.updateItemPropertiesDraftField)
       .toHaveBeenCalledWith("identifiedDescription", " known armor ");
+  });
+
+  it("edits, reorders, removes, and catalog-adds complete ordered Item localized entries", () => {
+    const basicHandlers = renderItemDialog("basic", withExactItemLocalizedStrings);
+
+    fireEvent.change(screen.getByLabelText("Item Name entry 42"), {
+      target: { value: "Legacy renamed" },
+    });
+    expect(basicHandlers.updateItemPropertiesDraftField).toHaveBeenCalledWith(
+      "localizedNameEntries",
+      [
+        { languageId: 42, text: "Legacy renamed" },
+        { languageId: 0, text: "Custom Hide Armor" },
+        { languageId: 10, text: "Polska nazwa" },
+      ],
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Move Item Name entry 42 down" }));
+    expect(basicHandlers.updateItemPropertiesDraftField).toHaveBeenCalledWith(
+      "localizedNameEntries",
+      [
+        { languageId: 0, text: "Custom Hide Armor" },
+        { languageId: 42, text: "Legacy name" },
+        { languageId: 10, text: "Polska nazwa" },
+      ],
+    );
+
+    fireEvent.change(screen.getByLabelText("Item Name entry to add"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByLabelText("New Item Name entry text"), {
+      target: { value: "German name" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add Item Name entry" }));
+    expect(basicHandlers.updateItemPropertiesDraftField).toHaveBeenCalledWith(
+      "localizedNameEntries",
+      [
+        { languageId: 42, text: "Legacy name" },
+        { languageId: 0, text: "Custom Hide Armor" },
+        { languageId: 10, text: "Polska nazwa" },
+        { languageId: 2, text: "German name" },
+      ],
+    );
+
+    const commentsHandlers = renderItemDialog("comments", withExactItemLocalizedStrings);
+    expect(screen.getByLabelText("Item Description entry 2")).toHaveValue("Beschreibung");
+    fireEvent.click(screen.getByRole("button", {
+      name: "Remove Item Identified Description entry 10",
+    }));
+    expect(commentsHandlers.updateItemPropertiesDraftField).toHaveBeenCalledWith(
+      "identifiedDescriptionEntries",
+      [{ languageId: 0, text: "Identified" }],
+    );
   });
 
   it("keeps unsupported retained localized-string members preserve-only independently", () => {

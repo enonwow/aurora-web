@@ -1212,3 +1212,45 @@ ordinals, hashes, paths, source/storage keys, raw fields or bytes,
 credentials, and host paths are prohibited from event fields and metric
 labels. A telemetry sink failure must not alter validation, mutation,
 transaction, rollback, recovery, or publication behavior.
+
+## 62. Existing Area Trigger ordered VarTable CAS extension (2026-09-05)
+
+The additive `area_trigger_variable_table_cas.v1` event covers exact source
+parsing, bounded ordered-entry admission, immutable-ordinal planning,
+candidate write, and readback. Required low-cardinality fields are
+`operation=parse_source|plan|write|readback`,
+`outcome=succeeded|failed`, stable `resultCode`, `changedEntryCount`, and
+`durationMs`.
+
+Stable failures distinguish malformed or unsupported source, invalid or
+unchanged pair, stale expected table, wrong family or ordinal, deletion
+collision, duplicate mutation, candidate/persisted readback drift, and
+preservation drift. Variable names and values, object IDs, ordinals, hashes,
+paths, source/storage keys, raw fields or bytes, credentials, and host paths
+are prohibited from event fields and metric labels. A telemetry sink failure
+must not alter validation, mutation, transaction, rollback, recovery, or
+publication behavior.
+
+## 63. Existing Area Creature class spell-entry replacement CAS extension (2026-09-14)
+
+The additive `area_creature_class_spell_entry_replacement_cas.v1` event covers
+exact source parsing, effective `classes.2da` and `spells.2da` resolution,
+bounded replacement admission, immutable-ordinal planning, candidate write,
+and readback. Required low-cardinality fields are
+`operation=parse_source|resolve_tables|admit_profile|plan|write|readback`,
+`outcome=succeeded|failed`, stable `resultCode`, `replacementCount`,
+`affectedListCount`, `changedFieldCount`, optional
+`classesSourceLayer=module|hak|vanilla`, optional
+`spellsSourceLayer=module|hak|vanilla`, and `durationMs`.
+
+Stable failures distinguish missing or ambiguous native structure, unsupported
+class/list ownership, metamagic source entry, stale source graph, absent or
+stale effective table descriptors, malformed table rows, missing/hidden or
+same-row target, class-level mismatch, duplicate or noncanonical targets,
+wrong family or ordinal, deletion collision, preservation drift, and
+candidate/persisted readback mismatch. Spell IDs, source/target pairs, list
+paths, object identities, table or graph hashes, display text, StringRefs,
+paths, source/storage keys, raw GFF/2DA content, credentials, and host paths
+are prohibited from event fields and metric labels. A telemetry sink failure
+must not alter validation, mutation, transaction, rollback, recovery, or
+publication behavior.

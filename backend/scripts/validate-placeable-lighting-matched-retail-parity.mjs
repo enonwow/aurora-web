@@ -125,14 +125,6 @@ const FORBIDDEN_REVIEW_ARTIFACTS = Object.freeze([
 const [command, ...rawArgs] = process.argv.slice(2);
 const options = parseArgs(rawArgs);
 
-if (command === "compare") {
-  runCompare();
-} else if (command === "admit") {
-  admit();
-} else {
-  failUsage("Use compare or admit.");
-}
-
 function runCompare() {
   const profilePath = requiredPath(options.profile, "--profile");
   const outDir = requiredPath(options.outDir, "--outDir");
@@ -1631,4 +1623,12 @@ class GateFailure extends Error {
     this.name = "GateFailure";
     this.blockerCodes = unique(blockerCodes);
   }
+}
+
+if (command === "compare") {
+  runCompare();
+} else if (command === "admit") {
+  admit();
+} else {
+  failUsage("Use compare or admit.");
 }

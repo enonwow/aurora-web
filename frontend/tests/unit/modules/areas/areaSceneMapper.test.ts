@@ -4900,6 +4900,82 @@ describe("mapBackendAreaToScene", () => {
     expect(wrongFamily.placeableProperties).toBeUndefined();
   });
 
+  it("projects complete ordered inline-ASCII Placeable entry lists into detached editable targets", () => {
+    const locNameEntries = [
+      { languageId: 3, textBytesBase64: "UG9sc2tp" },
+      { languageId: 0, textBytesBase64: "Q2hlc3Q=" },
+      { languageId: 11, textBytesBase64: "T3RoZXI=" },
+    ];
+    const descriptionEntries = [
+      { languageId: 0, textBytesBase64: "RGVzY3JpcHRpb24=" },
+      { languageId: 2, textBytesBase64: "RGV1dHNjaA==" },
+    ];
+    const area: AreaApiDetail = {
+      areaId: "area_placeable_ordered_editable_strings",
+      name: "Placeable Ordered Editable Strings",
+      biome: "interior",
+      width: 1,
+      height: 1,
+      tags: [],
+      benchmark: false,
+      previewImageUrl: "",
+      textureAtlas: {
+        atlasId: "atlas_placeable_ordered_editable_strings",
+        cacheKey: "atlas_placeable_ordered_editable_strings:1x1",
+        strategy: "blob-cache",
+      },
+      composition: {
+        placeables: 1,
+        doors: 0,
+        creatures: 0,
+        items: 0,
+        sounds: 0,
+        total: 1,
+      },
+      updatedAt: "2026-09-13T00:00:00.000Z",
+      objects: [{
+        objectId: "plc:0:ordered_editable_strings",
+        sourceIndex: 0,
+        kind: "placeable",
+        templateId: "plc_chest",
+        localizedName: "display fallback",
+        description: "display description",
+        placeableLocalizedStrings: {
+          locName: {
+            present: true,
+            strRef: 0xffff_ffff,
+            entries: locNameEntries,
+          },
+          description: {
+            present: true,
+            strRef: 0xffff_ffff,
+            entries: descriptionEntries,
+          },
+        },
+        x: 0,
+        y: 0,
+        z: 0,
+        bearing: 0,
+      }],
+    };
+
+    const mapped = mapBackendAreaToScene(area).objects[0]!;
+    expect(mapped.name).toBe("Chest");
+    expect(mapped.placeableProperties?.localizedName).toBe("Chest");
+    expect(mapped.placeableProperties?.localizedNameEntries).toEqual([
+      { languageId: 3, text: "Polski" },
+      { languageId: 0, text: "Chest" },
+      { languageId: 11, text: "Other" },
+    ]);
+    expect(mapped.placeableProperties?.description).toBe("Description");
+    expect(mapped.placeableProperties?.descriptionEntries).toEqual([
+      { languageId: 0, text: "Description" },
+      { languageId: 2, text: "Deutsch" },
+    ]);
+    expect(mapped.placeableProperties?.localizedNameEntries).not.toBe(locNameEntries);
+    expect(mapped.placeableProperties?.descriptionEntries).not.toBe(descriptionEntries);
+  });
+
   it("binds exact TrapType storage to one effective traps.2da catalog without inventing derived fields", () => {
     const area: AreaApiDetail = {
       areaId: "area_trap_type",
@@ -7089,7 +7165,11 @@ describe("mapBackendAreaToScene", () => {
       firstName: {
         present: true as const,
         strRef: 0xffff_ffff,
-        entries: [{ languageId: 0, textBytesBase64: "ICBHdWFyZCAg" }],
+        entries: [
+          { languageId: 42, textBytesBase64: "TGVnYWN5" },
+          { languageId: 0, textBytesBase64: "ICBHdWFyZCAg" },
+          { languageId: 10, textBytesBase64: "U3RyYXpuaWs=" },
+        ],
       },
       lastName: {
         present: true as const,
@@ -7127,8 +7207,15 @@ describe("mapBackendAreaToScene", () => {
 
     expect(creature?.creatureProperties).toMatchObject({
       firstName: "  Guard  ",
+      firstNameEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "  Guard  " },
+        { languageId: 10, text: "Straznik" },
+      ],
       lastName: "  Captain  ",
+      lastNameEntries: [{ languageId: 0, text: "  Captain  " }],
       description: "  Description  ",
+      descriptionEntries: [{ languageId: 0, text: "  Description  " }],
     });
     expect(creature?.source?.creatureLocalizedStrings).toEqual(localizedStrings);
     expect(creature?.source?.creatureLocalizedStrings).not.toBe(localizedStrings);
@@ -7610,7 +7697,11 @@ describe("mapBackendAreaToScene", () => {
       localizedName: {
         present: true as const,
         strRef: 0xffff_ffff,
-        entries: [{ languageId: 0, textBytesBase64: "IFN3b3JkIA==" }],
+        entries: [
+          { languageId: 42, textBytesBase64: "TGVnYWN5" },
+          { languageId: 0, textBytesBase64: "IFN3b3JkIA==" },
+          { languageId: 10, textBytesBase64: "TWllY3o=" },
+        ],
       },
       description: {
         present: true as const,
@@ -7650,7 +7741,13 @@ describe("mapBackendAreaToScene", () => {
 
     expect(item?.itemProperties).toMatchObject({
       localizedName: " Sword ",
+      localizedNameEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: " Sword " },
+        { languageId: 10, text: "Miecz" },
+      ],
       description: "",
+      descriptionEntries: [],
       identifiedDescription: "fallback identified description",
     });
     expect(item?.source?.itemLocalizedStrings).toEqual(itemLocalizedStrings);
@@ -7938,6 +8035,121 @@ describe("mapBackendAreaToScene", () => {
     expect(trigger?.source?.triggerTransitionStorage).not.toBe(triggerTransitionStorage);
     expect(trigger?.source?.triggerTransitionStorage)
       .not.toBe(trigger?.triggerTransitionStorage);
+  });
+
+  it("maps exact Trigger core properties into detached source and target tuples", () => {
+    const triggerCoreProperties = {
+      autoRemoveKey: 1 as const,
+      factionId: 2,
+      cursorId: 3,
+      highlightHeight: Math.fround(1.5),
+      keyName: " gate_key ",
+      portraitId: 4,
+      triggerType: -1,
+    };
+    const area = minimalAreaDetail({
+      composition: {
+        placeables: 0, doors: 0, creatures: 0, encounters: 0, items: 0,
+        sounds: 0, stores: 0, triggers: 1, waypoints: 0, total: 1,
+      },
+      objects: [{
+        objectId: "trigger:0:core",
+        sourceIndex: 0,
+        kind: "trigger",
+        templateId: "newgeneric",
+        triggerCoreProperties,
+        x: 1,
+        y: 2,
+        z: 0,
+        bearing: 0,
+      }],
+    });
+
+    const [trigger] = mapBackendAreaToScene(area).objects;
+
+    expect(trigger?.triggerCoreProperties).toEqual(triggerCoreProperties);
+    expect(trigger?.source?.triggerCoreProperties).toEqual(triggerCoreProperties);
+    expect(trigger?.triggerCoreProperties).not.toBe(triggerCoreProperties);
+    expect(trigger?.source?.triggerCoreProperties).not.toBe(triggerCoreProperties);
+    expect(trigger?.source?.triggerCoreProperties).not.toBe(trigger?.triggerCoreProperties);
+  });
+
+  it("maps exact Trigger trap properties into detached source and target tuples", () => {
+    const triggerTrapProperties = {
+      trapDetectable: 1,
+      trapDetectDc: 17,
+      trapDisarmable: 1,
+      disarmDc: 23,
+      trapFlag: 0,
+      trapOneShot: 1,
+      trapType: 7,
+    };
+    const area = minimalAreaDetail({
+      composition: {
+        placeables: 0, doors: 0, creatures: 0, encounters: 0, items: 0,
+        sounds: 0, stores: 0, triggers: 1, waypoints: 0, total: 1,
+      },
+      objects: [{
+        objectId: "trigger:0:trap",
+        sourceIndex: 0,
+        kind: "trigger",
+        templateId: "newgeneric",
+        triggerTrapProperties,
+        x: 1,
+        y: 2,
+        z: 0,
+        bearing: 0,
+      }],
+    });
+
+    const [trigger] = mapBackendAreaToScene(area).objects;
+
+    expect(trigger?.triggerTrapProperties).toEqual(triggerTrapProperties);
+    expect(trigger?.source?.triggerTrapProperties).toEqual(triggerTrapProperties);
+    expect(trigger?.triggerTrapProperties).not.toBe(triggerTrapProperties);
+    expect(trigger?.source?.triggerTrapProperties).not.toBe(triggerTrapProperties);
+    expect(trigger?.source?.triggerTrapProperties).not.toBe(trigger?.triggerTrapProperties);
+  });
+
+  it("maps one exact ordered Trigger VarTable into detached provenance and target state", () => {
+    const triggerVariables = { expectedEntries: [
+      { sourceIndex: 0, name: "Counter", type: "int", value: 2 },
+      { sourceIndex: 1, name: "Counter", type: "int", value: 3 },
+      { sourceIndex: 2, name: "State", type: "string", value: "armed" },
+    ] } as const;
+    const area = minimalAreaDetail({
+      composition: {
+        placeables: 0, doors: 0, creatures: 0, encounters: 0, items: 0,
+        sounds: 0, stores: 0, triggers: 1, waypoints: 0, total: 1,
+      },
+      objects: [{
+        objectId: "trigger:0:variables",
+        sourceIndex: 0,
+        kind: "trigger",
+        templateId: "newgeneric",
+        triggerVariables,
+        x: 1,
+        y: 2,
+        z: 0,
+        bearing: 0,
+      }],
+    });
+
+    const [trigger] = mapBackendAreaToScene(area).objects;
+
+    expect(trigger?.source?.triggerVariables).toEqual(triggerVariables);
+    expect(trigger?.triggerVariables).toEqual([
+      { name: "Counter", type: "int", value: 2 },
+      { name: "Counter", type: "int", value: 3 },
+      { name: "State", type: "string", value: "armed" },
+    ]);
+    expect(trigger?.source?.triggerVariables).not.toBe(triggerVariables);
+    expect(trigger?.source?.triggerVariables?.expectedEntries).not.toBe(
+      triggerVariables.expectedEntries,
+    );
+    expect(trigger?.triggerVariables).not.toBe(triggerVariables.expectedEntries);
+    expect(trigger?.source?.triggerVariables?.expectedEntries[0])
+      .not.toBe(trigger?.triggerVariables?.[0]);
   });
 
   it("maps exact Trigger editor Comment into detached source and target state", () => {

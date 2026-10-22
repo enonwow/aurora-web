@@ -50,6 +50,15 @@ import {
   type AreaTriggerTransitionStorage,
 } from "../../../domain/area-trigger-transition-storage";
 import {
+  isAreaTriggerCoreProperties,
+  type AreaTriggerCoreProperties,
+} from "../../../domain/area-trigger-core-properties";
+import {
+  AREA_TRIGGER_TRAP_PROPERTY_FIELDS,
+  isAreaTriggerTrapProperties,
+  type AreaTriggerTrapProperties,
+} from "../../../domain/area-trigger-trap-properties";
+import {
   AREA_STORE_COMMERCE_FIELDS,
   readAreaStoreCommerceValue,
   type AreaStoreCommerceValue,
@@ -286,6 +295,9 @@ import {
 import {
   type AreaWaypointVariableProvenance,
 } from "../../../domain/area-waypoint-variable-table";
+import {
+  type AreaTriggerVariableProvenance,
+} from "../../../domain/area-trigger-variable-table";
 import {
   MAX_AREA_ENCOUNTER_CREATURE_LIST_ENTRIES,
   parseAreaEncounterCreatureListProvenance,
@@ -696,6 +708,9 @@ export interface ParsedAreaPlacementBlueprint {
   triggerLocalizedName?: AreaTriggerLocalizedNameStorage;
   triggerScriptResRefs?: AreaTriggerScriptResRefsStorage;
   triggerTransitionStorage?: AreaTriggerTransitionStorage;
+  triggerCoreProperties?: AreaTriggerCoreProperties;
+  triggerTrapProperties?: AreaTriggerTrapProperties;
+  triggerVariables?: AreaTriggerVariableProvenance;
   triggerMetadata?: Record<string, ParsedAreaObjectMetadataPrimitive>;
   encounterTag?: AreaEncounterTagStorage;
   encounterTemplateResRef?: AreaEncounterTemplateResRefStorage;
@@ -2543,6 +2558,15 @@ function parsePlacementList(
     const triggerTransitionStorage = kind === "trigger"
       ? readExactTriggerTransitionStorage(view, structIndex)
       : undefined;
+    const triggerCoreProperties = kind === "trigger"
+      ? readExactTriggerCoreProperties(view, structIndex)
+      : undefined;
+    const triggerTrapProperties = kind === "trigger"
+      ? readExactTriggerTrapProperties(view, structIndex)
+      : undefined;
+    const triggerVariables = kind === "trigger"
+      ? readTriggerVariables(view, structIndex)
+      : undefined;
     const encounterTag = kind === "encounter"
       ? readExactEncounterTag(view, structIndex)
       : undefined;
@@ -2711,6 +2735,9 @@ function parsePlacementList(
       ...(triggerLocalizedName ? { triggerLocalizedName } : {}),
       ...(triggerScriptResRefs ? { triggerScriptResRefs } : {}),
       ...(triggerTransitionStorage ? { triggerTransitionStorage } : {}),
+      ...(triggerCoreProperties ? { triggerCoreProperties } : {}),
+      ...(triggerTrapProperties ? { triggerTrapProperties } : {}),
+      ...(triggerVariables ? { triggerVariables } : {}),
       ...(encounterTag ? { encounterTag } : {}),
       ...(encounterTemplateResRef ? { encounterTemplateResRef } : {}),
       ...(waypointTag ? { waypointTag } : {}),
@@ -4463,6 +4490,13 @@ function readWaypointVariables(
   return readAuroraVariables(view, structIndex, 5);
 }
 
+function readTriggerVariables(
+  view: GffView,
+  structIndex: number,
+): AreaTriggerVariableProvenance | undefined {
+  return readAuroraVariables(view, structIndex, 1);
+}
+
 function readExactEncounterCreatureList(
   view: GffView,
   structIndex: number,
@@ -6144,6 +6178,64 @@ function readExactTriggerTransitionStorage(
   return isAreaTriggerTransitionStorage(value) ? Object.freeze(value) : undefined;
 }
 
+function readExactTriggerCoreProperties(
+  view: GffView,
+  structIndex: number,
+): AreaTriggerCoreProperties | undefined {
+  if (view.structs[structIndex]?.typeId !== 1) return undefined;
+  const entries = view.getStructFieldEntries(structIndex);
+  if (!entries) return undefined;
+  const readExact = (label: string, typeId: number) => {
+    const matches = entries.filter(
+      (entry) => entry.label.toLowerCase() === label.toLowerCase(),
+    );
+    return matches.length === 1
+      && matches[0]?.label === label
+      && matches[0].field.typeId === typeId
+      ? matches[0].field
+      : undefined;
+  };
+  const autoRemoveKey = readExact("AutoRemoveKey", FIELD_TYPE.BYTE);
+  const faction = readExact("Faction", FIELD_TYPE.DWORD);
+  const cursor = readExact("Cursor", FIELD_TYPE.BYTE);
+  const highlightHeight = readExact("HighlightHeight", FIELD_TYPE.FLOAT);
+  const keyName = readExact("KeyName", FIELD_TYPE.CEXOSTRING);
+  const portraitId = readExact("PortraitId", FIELD_TYPE.WORD);
+  const triggerType = readExact("Type", FIELD_TYPE.INT);
+  if (!autoRemoveKey || !faction || !cursor || !highlightHeight || !keyName
+    || !portraitId || !triggerType) return undefined;
+  const value = {
+    autoRemoveKey: view.readNumber(autoRemoveKey),
+    factionId: view.readNumber(faction),
+    cursorId: view.readNumber(cursor),
+    highlightHeight: view.readNumber(highlightHeight),
+    keyName: view.readExactString(keyName),
+    portraitId: view.readNumber(portraitId),
+    triggerType: view.readNumber(triggerType),
+  };
+  return isAreaTriggerCoreProperties(value) ? Object.freeze(value) : undefined;
+}
+
+function readExactTriggerTrapProperties(
+  view: GffView,
+  structIndex: number,
+): AreaTriggerTrapProperties | undefined {
+  if (view.structs[structIndex]?.typeId !== 1) return undefined;
+  const entries = view.getStructFieldEntries(structIndex);
+  if (!entries) return undefined;
+  const value: Record<string, unknown> = {};
+  for (const field of AREA_TRIGGER_TRAP_PROPERTY_FIELDS) {
+    const matches = entries.filter(
+      (entry) => entry.label.toLowerCase() === field.label.toLowerCase(),
+    );
+    if (matches.length !== 1
+      || matches[0]?.label !== field.label
+      || matches[0].field.typeId !== FIELD_TYPE.BYTE) return undefined;
+    value[field.key] = view.readNumber(matches[0].field);
+  }
+  return isAreaTriggerTrapProperties(value) ? Object.freeze(value) : undefined;
+}
+
 function readExactEncounterFactionStorage(
   view: GffView,
   structIndex: number,
@@ -7188,6 +7280,9 @@ function stringifyPlacement(entry: ParsedAreaPlacementBlueprint): string {
     entry.triggerLocalizedName ? JSON.stringify(entry.triggerLocalizedName) : "",
     entry.triggerScriptResRefs ? JSON.stringify(entry.triggerScriptResRefs) : "",
     entry.triggerTransitionStorage ? JSON.stringify(entry.triggerTransitionStorage) : "",
+    entry.triggerCoreProperties ? JSON.stringify(entry.triggerCoreProperties) : "",
+    entry.triggerTrapProperties ? JSON.stringify(entry.triggerTrapProperties) : "",
+    entry.triggerVariables ? JSON.stringify(entry.triggerVariables) : "",
     entry.encounterTag ? JSON.stringify(entry.encounterTag) : "",
     entry.encounterTemplateResRef ? JSON.stringify(entry.encounterTemplateResRef) : "",
     entry.waypointTag ? JSON.stringify(entry.waypointTag) : "",

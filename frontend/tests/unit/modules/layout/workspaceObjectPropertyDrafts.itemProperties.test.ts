@@ -16,10 +16,22 @@ describe("workspaceObjectPropertyDrafts item properties", () => {
       resRef: "aaarcl008",
       itemProperties: {
         localizedName: "Custom Hide Armor",
+        localizedNameEntries: [
+          { languageId: 42, text: "Legacy name" },
+          { languageId: 0, text: "Custom Hide Armor" },
+          { languageId: 10, text: "Polska zbroja" }
+        ],
         localizedNameStrRef: 12840,
         description: "Plain text description",
+        descriptionEntries: [
+          { languageId: 0, text: "Plain text description" },
+          { languageId: 2, text: "Beschreibung" }
+        ],
         descriptionStrRef: 2001,
         identifiedDescription: "Identified text",
+        identifiedDescriptionEntries: [
+          { languageId: 0, text: "Identified text" }
+        ],
         identifiedDescriptionStrRef: 2002,
         comments: "Designer note",
         paletteId: 3,
@@ -74,8 +86,20 @@ describe("workspaceObjectPropertyDrafts item properties", () => {
       tag: "NW_AARCLO08",
       resRef: "aaarcl008",
       localizedName: "Custom Hide Armor",
+      localizedNameEntries: [
+        { languageId: 42, text: "Legacy name" },
+        { languageId: 0, text: "Custom Hide Armor" },
+        { languageId: 10, text: "Polska zbroja" }
+      ],
       localizedNameStrRef: 12840,
+      descriptionEntries: [
+        { languageId: 0, text: "Plain text description" },
+        { languageId: 2, text: "Beschreibung" }
+      ],
       descriptionStrRef: 2001,
+      identifiedDescriptionEntries: [
+        { languageId: 0, text: "Identified text" }
+      ],
       identifiedDescriptionStrRef: 2002,
       paletteId: 3,
       baseItem: 16,
@@ -113,6 +137,14 @@ describe("workspaceObjectPropertyDrafts item properties", () => {
     });
     expect(draft.propertyList).not.toBe(item.itemProperties?.propertyList);
     expect(draft.propertyList[0]).not.toBe(item.itemProperties?.propertyList?.[0]);
+    expect(draft.localizedNameEntries).not.toBe(item.itemProperties?.localizedNameEntries);
+    expect(draft.localizedNameEntries?.[0]).not.toBe(
+      item.itemProperties?.localizedNameEntries?.[0]
+    );
+    expect(draft.descriptionEntries).not.toBe(item.itemProperties?.descriptionEntries);
+    expect(draft.identifiedDescriptionEntries).not.toBe(
+      item.itemProperties?.identifiedDescriptionEntries
+    );
     expect(areItemPropertiesDraftsEqual(draft, { ...draft, cost: 19463 })).toBe(true);
     expect(areItemPropertiesDraftsEqual(draft, { ...draft, cost: 19464 })).toBe(false);
   });

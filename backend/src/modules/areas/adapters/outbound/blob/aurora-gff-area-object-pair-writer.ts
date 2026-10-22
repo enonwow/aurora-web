@@ -170,7 +170,27 @@ import {
   type ExistingAreaCreatureClassSlotResizeMutation,
 } from "../../../domain/area-creature-class-slot-resize";
 import {
+  readExistingAreaCreatureClassSpellClearMutation,
+  type ExistingAreaCreatureClassSpellClearMutation,
+} from "../../../domain/area-creature-class-spell-clear";
+import {
+  readExistingAreaCreatureClassSpellRemovalMutation,
+  type ExistingAreaCreatureClassSpellRemovalMutation,
+} from "../../../domain/area-creature-class-spell-removal";
+import {
+  readExistingAreaCreatureClassSpellReorderMutation,
+  type ExistingAreaCreatureClassSpellReorderMutation,
+} from "../../../domain/area-creature-class-spell-reorder";
+import {
+  readExistingAreaCreatureClassSpellReplacementMutation,
+  type ExistingAreaCreatureClassSpellReplacementMutation,
+} from "../../../domain/area-creature-class-spell-replacement";
+import {
   analyzeAreaCreatureClassListField,
+  clearAreaCreatureClassSpellLists,
+  removeAreaCreatureClassSpellEntries,
+  reorderAreaCreatureClassSpellEntries,
+  replaceAreaCreatureClassSpellEntries,
   replaceAreaCreatureClassIdsAndClearSpellLists,
   resizeAreaCreatureClassListTail,
 } from "./area-creature-class-list-gff";
@@ -245,6 +265,9 @@ import {
 } from "../../../domain/area-creature-script-resrefs";
 import {
   AREA_CREATURE_NAME_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaCreatureLocalizedStringEntriesEqual,
+  areaCreatureLocalizedStringProfileForEntries,
+  readEditableAreaCreatureLocalizedStringEntries,
   readExistingAreaCreatureNameLocalizedStringMutations,
   type ExistingAreaCreatureNameLocalizedStringMutation,
 } from "../../../domain/area-creature-localized-string-mutation";
@@ -298,6 +321,12 @@ import {
   type AreaWaypointVariableTargetEntry,
   type ExistingAreaWaypointVariableMutation,
 } from "../../../domain/area-waypoint-variable-table";
+import {
+  parseAreaTriggerVariableMutation,
+  type AreaTriggerVariableSourceEntry,
+  type AreaTriggerVariableTargetEntry,
+  type ExistingAreaTriggerVariableMutation,
+} from "../../../domain/area-trigger-variable-table";
 import {
   areaEncounterCreatureListEntriesEqual,
   parseAreaEncounterCreatureListProvenance,
@@ -390,6 +419,22 @@ import {
   type AreaTriggerTransitionStorage,
   type ExistingAreaTriggerTransitionStorageMutation,
 } from "../../../domain/area-trigger-transition-storage";
+import {
+  AREA_TRIGGER_CORE_PROPERTY_FIELDS,
+  areaTriggerCorePropertiesEqual,
+  isAreaTriggerCoreProperties,
+  readExistingAreaTriggerCorePropertiesMutation,
+  type AreaTriggerCoreProperties,
+  type ExistingAreaTriggerCorePropertiesMutation,
+} from "../../../domain/area-trigger-core-properties";
+import {
+  AREA_TRIGGER_TRAP_PROPERTY_FIELDS,
+  areaTriggerTrapPropertiesEqual,
+  isAreaTriggerTrapProperties,
+  readExistingAreaTriggerTrapPropertiesMutation,
+  type AreaTriggerTrapProperties,
+  type ExistingAreaTriggerTrapPropertiesMutation,
+} from "../../../domain/area-trigger-trap-properties";
 import {
   readExistingAreaEncounterTagMutation,
   type ExistingAreaEncounterTagMutation,
@@ -490,6 +535,9 @@ import {
 } from "../../../domain/area-item-template-resref";
 import {
   AREA_ITEM_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaItemLocalizedStringEntriesEqual,
+  areaItemLocalizedStringProfileForEntries,
+  readEditableAreaItemLocalizedStringEntries,
   readExistingAreaItemLocalizedStringMutations,
   type ExistingAreaItemLocalizedStringMutation,
 } from "../../../domain/area-item-localized-string-mutation";
@@ -575,6 +623,9 @@ import {
 } from "../../../domain/area-placeable-tag";
 import {
   AREA_PLACEABLE_LOCALIZED_STRING_MUTATION_FIELDS,
+  areaPlaceableLocalizedStringEntriesEqual,
+  areaPlaceableLocalizedStringProfileForEntries,
+  readEditableAreaPlaceableLocalizedStringEntries,
   readExistingAreaPlaceableLocalizedStringMutations,
   type ExistingAreaPlaceableLocalizedStringMutation,
 } from "../../../domain/area-placeable-localized-string-mutation";
@@ -811,6 +862,10 @@ export interface ExistingAreaCreaturePropertyMutation {
   readonly classLevels?: ExistingAreaCreatureClassLevelMutation;
   readonly classIdentity?: ExistingAreaCreatureClassIdentityMutation;
   readonly classSlotResize?: ExistingAreaCreatureClassSlotResizeMutation;
+  readonly classSpellClear?: ExistingAreaCreatureClassSpellClearMutation;
+  readonly classSpellRemoval?: ExistingAreaCreatureClassSpellRemovalMutation;
+  readonly classSpellReorder?: ExistingAreaCreatureClassSpellReorderMutation;
+  readonly classSpellReplacement?: ExistingAreaCreatureClassSpellReplacementMutation;
   readonly phenotype?: ExistingAreaCreaturePhenotypeMutation;
   readonly portrait?: ExistingAreaCreaturePortraitMutation;
   readonly challengeRating?: ExistingAreaCreatureChallengeRatingMutation;
@@ -855,6 +910,9 @@ export interface ExistingAreaTriggerPropertyMutation {
   readonly editorComment?: ExistingAreaTriggerEditorCommentMutation;
   readonly scripts?: ExistingAreaTriggerScriptResRefsMutation;
   readonly transitionStorage?: ExistingAreaTriggerTransitionStorageMutation;
+  readonly coreProperties?: ExistingAreaTriggerCorePropertiesMutation;
+  readonly trapProperties?: ExistingAreaTriggerTrapPropertiesMutation;
+  readonly variables?: ExistingAreaTriggerVariableMutation;
 }
 
 export interface ExistingAreaWaypointPropertyMutation {
@@ -5701,7 +5759,10 @@ function normalizeObjectPropertyMutations(
            && key !== "localizedName"
           && key !== "editorComment"
           && key !== "scripts"
-          && key !== "transitionStorage",
+          && key !== "transitionStorage"
+          && key !== "coreProperties"
+          && key !== "trapProperties"
+          && key !== "variables",
       );
       if (unexpected !== undefined) {
         throw mutationInvalid("Trigger property mutation contains an unsupported field.", [
@@ -5726,9 +5787,19 @@ function normalizeObjectPropertyMutations(
         rawMutation,
         "transitionStorage",
       );
+      const hasCoreProperties = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "coreProperties",
+      );
+      const hasTrapProperties = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "trapProperties",
+      );
+      const hasVariables = Object.prototype.hasOwnProperty.call(rawMutation, "variables");
       if (!hasTag && !hasTemplateResRef && !hasLocalizedName && !hasEditorComment &&
-          !hasScripts && !hasTransitionStorage) {
-        throw mutationInvalid("Trigger property mutation requires Tag, TemplateResRef, LocalizedName, Comment, scripts, and/or transition-storage CAS.", [
+          !hasScripts && !hasTransitionStorage && !hasCoreProperties &&
+          !hasTrapProperties && !hasVariables) {
+        throw mutationInvalid("Trigger property mutation requires Tag, TemplateResRef, LocalizedName, Comment, scripts, transition-storage, and/or VarTable CAS.", [
           `trigger:index=${sourceIndex}:property:missing`,
         ]);
       }
@@ -5749,6 +5820,15 @@ function normalizeObjectPropertyMutations(
         : undefined;
       const transitionStorage = hasTransitionStorage
         ? normalizeTriggerTransitionStorageMutation(rawMutation.transitionStorage, sourceIndex)
+        : undefined;
+      const coreProperties = hasCoreProperties
+        ? normalizeTriggerCorePropertiesMutation(rawMutation.coreProperties, sourceIndex)
+        : undefined;
+      const trapProperties = hasTrapProperties
+        ? normalizeTriggerTrapPropertiesMutation(rawMutation.trapProperties, sourceIndex)
+        : undefined;
+      const variables = hasVariables
+        ? normalizeTriggerVariableMutation(rawMutation.variables, sourceIndex)
         : undefined;
       if (deletionIndexes.get("trigger")?.has(sourceIndex)) {
         throw mutationInvalid("One immutable Trigger ordinal cannot be property-mutated and deleted.", [
@@ -5772,6 +5852,13 @@ function normalizeObjectPropertyMutations(
             ...(transitionStorage
               ? ["LinkedTo", "LinkedToFlags", "LoadScreenID"]
               : []),
+            ...(coreProperties
+              ? AREA_TRIGGER_CORE_PROPERTY_FIELDS.map((field) => field.label)
+              : []),
+            ...(trapProperties
+              ? AREA_TRIGGER_TRAP_PROPERTY_FIELDS.map((field) => field.label)
+              : []),
+            ...(variables ? ["VarTable"] : []),
           ].join("+")}:duplicate`,
         ]);
       }
@@ -5784,6 +5871,9 @@ function normalizeObjectPropertyMutations(
         ...(editorComment ? { editorComment } : {}),
         ...(scripts ? { scripts } : {}),
         ...(transitionStorage ? { transitionStorage } : {}),
+        ...(coreProperties ? { coreProperties } : {}),
+        ...(trapProperties ? { trapProperties } : {}),
+        ...(variables ? { variables } : {}),
       }));
       continue;
     }
@@ -6078,6 +6168,10 @@ function normalizeObjectPropertyMutations(
           key !== "classLevels" &&
           key !== "classIdentity" &&
           key !== "classSlotResize" &&
+          key !== "classSpellClear" &&
+          key !== "classSpellRemoval" &&
+          key !== "classSpellReorder" &&
+          key !== "classSpellReplacement" &&
           key !== "phenotype" &&
           key !== "portrait" &&
           key !== "challengeRating" &&
@@ -6152,6 +6246,22 @@ function normalizeObjectPropertyMutations(
         rawMutation,
         "classSlotResize",
       );
+      const hasClassSpellClear = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "classSpellClear",
+      );
+      const hasClassSpellRemoval = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "classSpellRemoval",
+      );
+      const hasClassSpellReorder = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "classSpellReorder",
+      );
+      const hasClassSpellReplacement = Object.prototype.hasOwnProperty.call(
+        rawMutation,
+        "classSpellReplacement",
+      );
       const hasPhenotype = Object.prototype.hasOwnProperty.call(rawMutation, "phenotype");
       const hasPortrait = Object.prototype.hasOwnProperty.call(rawMutation, "portrait");
       const hasChallengeRating = Object.prototype.hasOwnProperty.call(
@@ -6215,6 +6325,10 @@ function normalizeObjectPropertyMutations(
         !hasClassLevels &&
         !hasClassIdentity &&
         !hasClassSlotResize &&
+        !hasClassSpellClear &&
+        !hasClassSpellRemoval &&
+        !hasClassSpellReorder &&
+        !hasClassSpellReplacement &&
         !hasPhenotype &&
         !hasPortrait &&
         !hasChallengeRating &&
@@ -6259,6 +6373,34 @@ function normalizeObjectPropertyMutations(
         throw mutationInvalid(
           "Creature class-slot resize owns ClassList and StartingPackage and cannot be combined with their other mutations.",
           [`creature:index=${sourceIndex}:ClassList:class_slot_resize_conflict`],
+        );
+      }
+      if (hasClassSpellClear &&
+        (hasClassLevels || hasClassIdentity || hasClassSlotResize || hasClassSpellRemoval || hasClassSpellReorder || hasClassSpellReplacement)) {
+        throw mutationInvalid(
+          "Creature class spell-list clear owns ClassList and cannot be combined with another ClassList mutation.",
+          [`creature:index=${sourceIndex}:ClassList:spell_clear_conflict`],
+        );
+      }
+      if (hasClassSpellRemoval &&
+        (hasClassLevels || hasClassIdentity || hasClassSlotResize || hasClassSpellClear || hasClassSpellReorder || hasClassSpellReplacement)) {
+        throw mutationInvalid(
+          "Creature class spell-entry removal owns ClassList and cannot be combined with another ClassList mutation.",
+          [`creature:index=${sourceIndex}:ClassList:spell_removal_conflict`],
+        );
+      }
+      if (hasClassSpellReorder &&
+        (hasClassLevels || hasClassIdentity || hasClassSlotResize || hasClassSpellClear || hasClassSpellRemoval || hasClassSpellReplacement)) {
+        throw mutationInvalid(
+          "Creature class spell-entry reorder owns ClassList and cannot be combined with another ClassList mutation.",
+          [`creature:index=${sourceIndex}:ClassList:spell_reorder_conflict`],
+        );
+      }
+      if (hasClassSpellReplacement &&
+        (hasClassLevels || hasClassIdentity || hasClassSlotResize || hasClassSpellClear || hasClassSpellRemoval || hasClassSpellReorder)) {
+        throw mutationInvalid(
+          "Creature class spell-entry replacement owns ClassList and cannot be combined with another ClassList mutation.",
+          [`creature:index=${sourceIndex}:ClassList:spell_replacement_conflict`],
         );
       }
       const tag = hasTag
@@ -6323,6 +6465,21 @@ function normalizeObjectPropertyMutations(
         : undefined;
       const classSlotResize = hasClassSlotResize
         ? normalizeCreatureClassSlotResizeMutation(rawMutation.classSlotResize, sourceIndex)
+        : undefined;
+      const classSpellClear = hasClassSpellClear
+        ? normalizeCreatureClassSpellClearMutation(rawMutation.classSpellClear, sourceIndex)
+        : undefined;
+      const classSpellRemoval = hasClassSpellRemoval
+        ? normalizeCreatureClassSpellRemovalMutation(rawMutation.classSpellRemoval, sourceIndex)
+        : undefined;
+      const classSpellReorder = hasClassSpellReorder
+        ? normalizeCreatureClassSpellReorderMutation(rawMutation.classSpellReorder, sourceIndex)
+        : undefined;
+      const classSpellReplacement = hasClassSpellReplacement
+        ? normalizeCreatureClassSpellReplacementMutation(
+            rawMutation.classSpellReplacement,
+            sourceIndex,
+          )
         : undefined;
       const classLevelTarget = classLevels ??
         (classIdentity?.levels.some(
@@ -6484,6 +6641,10 @@ function normalizeObjectPropertyMutations(
         ...(classLevels ? { classLevels } : {}),
         ...(classIdentity ? { classIdentity } : {}),
         ...(classSlotResize ? { classSlotResize } : {}),
+        ...(classSpellClear ? { classSpellClear } : {}),
+        ...(classSpellRemoval ? { classSpellRemoval } : {}),
+        ...(classSpellReorder ? { classSpellReorder } : {}),
+        ...(classSpellReplacement ? { classSpellReplacement } : {}),
         ...(phenotype ? { phenotype } : {}),
         ...(portrait ? { portrait } : {}),
         ...(challengeRating ? { challengeRating } : {}),
@@ -7010,6 +7171,62 @@ function normalizeCreatureClassSlotResizeMutation(
     throw mutationInvalid(
       "Creature class-slot resize requires one exact tail-only append or confirmed truncation contract.",
       [`creature:index=${sourceIndex}:ClassList:invalid_class_slot_resize`],
+    );
+  }
+  return mutation;
+}
+
+function normalizeCreatureClassSpellClearMutation(
+  input: unknown,
+  sourceIndex: number,
+): ExistingAreaCreatureClassSpellClearMutation {
+  const mutation = readExistingAreaCreatureClassSpellClearMutation(input);
+  if (!mutation) {
+    throw mutationInvalid(
+      "Creature class spell-list clear requires one exact confirmed bounded contract.",
+      [`creature:index=${sourceIndex}:ClassList:invalid_spell_clear`],
+    );
+  }
+  return mutation;
+}
+
+function normalizeCreatureClassSpellRemovalMutation(
+  input: unknown,
+  sourceIndex: number,
+): ExistingAreaCreatureClassSpellRemovalMutation {
+  const mutation = readExistingAreaCreatureClassSpellRemovalMutation(input);
+  if (!mutation) {
+    throw mutationInvalid(
+      "Creature class spell-entry removal requires one exact confirmed bounded contract.",
+      [`creature:index=${sourceIndex}:ClassList:invalid_spell_removal`],
+    );
+  }
+  return mutation;
+}
+
+function normalizeCreatureClassSpellReorderMutation(
+  input: unknown,
+  sourceIndex: number,
+): ExistingAreaCreatureClassSpellReorderMutation {
+  const mutation = readExistingAreaCreatureClassSpellReorderMutation(input);
+  if (!mutation) {
+    throw mutationInvalid(
+      "Creature class spell-entry reorder requires one exact confirmed bounded contract.",
+      [`creature:index=${sourceIndex}:ClassList:invalid_spell_reorder`],
+    );
+  }
+  return mutation;
+}
+
+function normalizeCreatureClassSpellReplacementMutation(
+  input: unknown,
+  sourceIndex: number,
+): ExistingAreaCreatureClassSpellReplacementMutation {
+  const mutation = readExistingAreaCreatureClassSpellReplacementMutation(input);
+  if (!mutation) {
+    throw mutationInvalid(
+      "Creature class spell-entry replacement requires one exact confirmed bounded contract.",
+      [`creature:index=${sourceIndex}:ClassList:invalid_spell_replacement`],
     );
   }
   return mutation;
@@ -7680,6 +7897,47 @@ function normalizeTriggerTransitionStorageMutation(
     );
   }
   return mutation;
+}
+
+function normalizeTriggerCorePropertiesMutation(
+  input: unknown,
+  sourceIndex: number,
+): ExistingAreaTriggerCorePropertiesMutation {
+  const mutation = readExistingAreaTriggerCorePropertiesMutation(input);
+  if (!mutation) {
+    throw mutationInvalid(
+      "Trigger core-properties mutation requires one complete changed exact CAS tuple.",
+      [`trigger:index=${sourceIndex}:coreProperties:invalid_tuple`],
+    );
+  }
+  return mutation;
+}
+
+function normalizeTriggerTrapPropertiesMutation(
+  input: unknown,
+  sourceIndex: number,
+): ExistingAreaTriggerTrapPropertiesMutation {
+  const mutation = readExistingAreaTriggerTrapPropertiesMutation(input);
+  if (!mutation) {
+    throw mutationInvalid(
+      "Trigger trap-properties mutation requires one complete changed exact CAS tuple.",
+      [`trigger:index=${sourceIndex}:trapProperties:invalid_tuple`],
+    );
+  }
+  return mutation;
+}
+
+function normalizeTriggerVariableMutation(
+  input: unknown,
+  sourceIndex: number,
+): ExistingAreaTriggerVariableMutation {
+  try {
+    return parseAreaTriggerVariableMutation(input);
+  } catch (error) {
+    throw mutationInvalid("Trigger VarTable mutation requires one complete changed ordered CAS pair.", [
+      `trigger:index=${sourceIndex}:VarTable:${error instanceof Error ? error.message : "invalid_pair"}`,
+    ]);
+  }
 }
 
 function normalizeTriggerEditorCommentMutation(
@@ -11061,15 +11319,40 @@ function mutateObjectPropertyEntry(
           mutation.transitionStorage,
         )
       : scriptsUpdated;
+    const corePropertiesUpdated = mutation.coreProperties
+      ? mutateTriggerCorePropertiesEntry(
+          transitionStorageUpdated,
+          mutation.sourceIndex,
+          mutation.coreProperties,
+        )
+      : transitionStorageUpdated;
+    const trapPropertiesUpdated = mutation.trapProperties
+      ? mutateTriggerTrapPropertiesEntry(
+          corePropertiesUpdated,
+          mutation.sourceIndex,
+          mutation.trapProperties,
+        )
+      : corePropertiesUpdated;
+    const variablesUpdated = mutation.variables
+      ? {
+          typeId: trapPropertiesUpdated.typeId,
+          fields: mutateTriggerVariableFields(
+            trapPropertiesUpdated,
+            mutation.sourceIndex,
+            mutation.variables,
+            trapPropertiesUpdated.fields,
+          ),
+        }
+      : trapPropertiesUpdated;
     return mutation.tag
       ? mutateExactObjectTagEntry(
-          transitionStorageUpdated,
+          variablesUpdated,
           mutation.sourceIndex,
           mutation.tag,
           "trigger",
           "Trigger",
         )
-      : transitionStorageUpdated;
+      : variablesUpdated;
   }
   if (mutation.kind === "encounter") {
     const templateResRefUpdated = mutation.templateResRef
@@ -11212,14 +11495,11 @@ function mutateObjectPropertyEntry(
             )!;
             replacements.set(
               localizedString.field,
-              mutateInlineAsciiLocalizedStringField(
+              mutateItemLocalizedStringField(
                 stateUpdated,
                 mutation.sourceIndex,
                 localizedString,
-                "item",
-                "Item",
                 mapping.maxBytes,
-                true,
               ),
             );
           }
@@ -11469,6 +11749,38 @@ function mutateObjectPropertyEntry(
         return field;
       });
     }
+    if (mutation.classSpellClear) {
+      const classList = mutateCreatureClassSpellClearField(
+        entry,
+        mutation.sourceIndex,
+        mutation.classSpellClear,
+      );
+      fields = fields.map((field) => field.label === "ClassList" ? classList : field);
+    }
+    if (mutation.classSpellRemoval) {
+      const classList = mutateCreatureClassSpellRemovalField(
+        entry,
+        mutation.sourceIndex,
+        mutation.classSpellRemoval,
+      );
+      fields = fields.map((field) => field.label === "ClassList" ? classList : field);
+    }
+    if (mutation.classSpellReorder) {
+      const classList = mutateCreatureClassSpellReorderField(
+        entry,
+        mutation.sourceIndex,
+        mutation.classSpellReorder,
+      );
+      fields = fields.map((field) => field.label === "ClassList" ? classList : field);
+    }
+    if (mutation.classSpellReplacement) {
+      const classList = mutateCreatureClassSpellReplacementField(
+        entry,
+        mutation.sourceIndex,
+        mutation.classSpellReplacement,
+      );
+      fields = fields.map((field) => field.label === "ClassList" ? classList : field);
+    }
     if (mutation.phenotype) {
       const phenotype = mutateCreaturePhenotypeField(
         entry,
@@ -11613,14 +11925,11 @@ function mutateObjectPropertyEntry(
         )!;
         replacements.set(
           localizedString.field,
-          mutateInlineAsciiLocalizedStringField(
+          mutateCreatureLocalizedStringField(
             entry,
             mutation.sourceIndex,
             localizedString,
-            "creature",
-            "Creature",
             mapping.maxBytes,
-            true,
           ),
         );
       }
@@ -11947,6 +12256,27 @@ function mutateWaypointVariableFields(
     baseFields,
     "waypoint",
     "Waypoint",
+  );
+}
+
+function mutateTriggerVariableFields(
+  sourceTrigger: GffListField["value"][number],
+  triggerIndex: number,
+  mutation: ExistingAreaTriggerVariableMutation,
+  baseFields: SupportedGffField[],
+): SupportedGffField[] {
+  if (sourceTrigger.typeId !== 1) {
+    throw mutationInvalid("Trigger variable mutation requires one type-1 native Trigger struct.", [
+      `trigger:index=${triggerIndex}:struct_type=${sourceTrigger.typeId}`,
+    ]);
+  }
+  return mutateAuroraVariableFields(
+    sourceTrigger,
+    triggerIndex,
+    mutation,
+    baseFields,
+    "trigger",
+    "Trigger",
   );
 }
 
@@ -12751,11 +13081,12 @@ function mutateAuroraVariableFields(
     | ExistingAreaCreatureVariableMutation
     | ExistingAreaEncounterVariableMutation
     | ExistingAreaWaypointVariableMutation
+    | ExistingAreaTriggerVariableMutation
     | ExistingAreaItemVariableMutation
     | ExistingAreaStoreVariableMutation,
   baseFields: SupportedGffField[],
-  ownerKind: "placeable" | "creature" | "encounter" | "waypoint" | "item" | "store",
-  ownerLabel: "Placeable" | "Creature" | "Encounter" | "Waypoint" | "Item" | "Store",
+  ownerKind: "placeable" | "creature" | "encounter" | "waypoint" | "trigger" | "item" | "store",
+  ownerLabel: "Placeable" | "Creature" | "Encounter" | "Waypoint" | "Trigger" | "Item" | "Store",
 ): SupportedGffField[] {
   const matches = sourceOwner.fields.filter(
     (field) => field.label.toLowerCase() === "vartable",
@@ -12808,11 +13139,12 @@ function validateNativeAuroraVariableEntry(
     | AreaCreatureVariableSourceEntry
     | AreaEncounterVariableSourceEntry
     | AreaWaypointVariableSourceEntry
+    | AreaTriggerVariableSourceEntry
     | AreaItemVariableSourceEntry
     | AreaStoreVariableSourceEntry,
   ownerIndex: number,
-  ownerKind: "placeable" | "creature" | "encounter" | "waypoint" | "item" | "store",
-  ownerLabel: "Placeable" | "Creature" | "Encounter" | "Waypoint" | "Item" | "Store",
+  ownerKind: "placeable" | "creature" | "encounter" | "waypoint" | "trigger" | "item" | "store",
+  ownerLabel: "Placeable" | "Creature" | "Encounter" | "Waypoint" | "Trigger" | "Item" | "Store",
 ): void {
   if (!entry || entry.typeId !== 0 || entry.fields.length !== 3) {
     throw mutationInvalid(`Native ${ownerLabel} variable entry has an unsupported struct profile.`, [
@@ -12843,6 +13175,7 @@ function buildAuroraVariableEntry(
     | AreaCreatureVariableTargetEntry
     | AreaEncounterVariableTargetEntry
     | AreaWaypointVariableTargetEntry
+    | AreaTriggerVariableTargetEntry
     | AreaItemVariableTargetEntry
     | AreaStoreVariableTargetEntry,
 ): GffListField["value"][number] {
@@ -12870,6 +13203,60 @@ function mutatePlaceableLocalizedStringField(
   const mapping = AREA_PLACEABLE_LOCALIZED_STRING_MUTATION_FIELDS.find(
     (candidate) => candidate.field === mutation.field,
   )!;
+  if (
+    mutation.expectedProfile !== undefined &&
+    mutation.expectedEntries !== undefined &&
+    mutation.valueEntries !== undefined
+  ) {
+    const caseInsensitiveMatches = entry.fields.filter(
+      (field) => field.label.toLowerCase() === mutation.field.toLowerCase(),
+    );
+    const exactMatches = caseInsensitiveMatches.filter((field) => field.label === mutation.field);
+    const field = exactMatches[0];
+    if (
+      caseInsensitiveMatches.length !== 1 ||
+      exactMatches.length !== 1 ||
+      field?.type !== "cexolocstring"
+    ) {
+      throw mutationInvalid(
+        `Placeable ${mutation.field} mutation requires one native CExoLocString field.`,
+        [
+          `placeable:index=${sourceIndex}:${mutation.field}:count=${exactMatches.length}:type=${field?.type ?? "missing"}`,
+        ],
+      );
+    }
+    const actualEntries = field.value.strRef === 0xffff_ffff
+      ? readEditableAreaPlaceableLocalizedStringEntries(
+          field.value.entries ?? [],
+          mapping.maxBytes,
+        )
+      : undefined;
+    if (!actualEntries) {
+      throw mutationInvalid(
+        `Placeable ${mutation.field} source is outside the admitted ordered inline ASCII profile.`,
+        [`placeable:index=${sourceIndex}:${mutation.field}:unsupported_source`],
+      );
+    }
+    if (
+      areaPlaceableLocalizedStringProfileForEntries(actualEntries) !== mutation.expectedProfile ||
+      !areaPlaceableLocalizedStringEntriesEqual(actualEntries, mutation.expectedEntries) ||
+      (actualEntries.find((candidate) => candidate.languageId === 0)?.text ?? "")
+        !== mutation.expectedValue
+    ) {
+      throw mutationInvalid(
+        `Placeable ${mutation.field} source differs from retained provenance.`,
+        [`placeable:index=${sourceIndex}:${mutation.field}:stale_source`],
+      );
+    }
+    return {
+      label: mutation.field,
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: mutation.valueEntries.map((candidate) => ({ ...candidate })),
+      },
+    };
+  }
   return mutateInlineAsciiLocalizedStringField(
     entry,
     sourceIndex,
@@ -12878,6 +13265,142 @@ function mutatePlaceableLocalizedStringField(
     "Placeable",
     mapping.maxBytes,
     false,
+  );
+}
+
+function mutateItemLocalizedStringField(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+  mutation: ExistingAreaItemLocalizedStringMutation,
+  maxBytes: number,
+): SupportedGffField {
+  if (
+    mutation.expectedProfile !== undefined &&
+    mutation.expectedEntries !== undefined &&
+    mutation.valueEntries !== undefined
+  ) {
+    const caseInsensitiveMatches = entry.fields.filter(
+      (field) => field.label.toLowerCase() === mutation.field.toLowerCase(),
+    );
+    const exactMatches = caseInsensitiveMatches.filter((field) => field.label === mutation.field);
+    const field = exactMatches[0];
+    if (
+      caseInsensitiveMatches.length !== 1 ||
+      exactMatches.length !== 1 ||
+      field?.type !== "cexolocstring"
+    ) {
+      throw mutationInvalid(
+        `Item ${mutation.field} mutation requires one native CExoLocString field.`,
+        [
+          `item:index=${sourceIndex}:${mutation.field}:count=${exactMatches.length}:type=${field?.type ?? "missing"}`,
+        ],
+      );
+    }
+    const actualEntries = field.value.strRef === 0xffff_ffff
+      ? readEditableAreaItemLocalizedStringEntries(field.value.entries ?? [], maxBytes)
+      : undefined;
+    if (!actualEntries) {
+      throw mutationInvalid(
+        `Item ${mutation.field} source is outside the admitted ordered inline ASCII profile.`,
+        [`item:index=${sourceIndex}:${mutation.field}:unsupported_source`],
+      );
+    }
+    if (
+      areaItemLocalizedStringProfileForEntries(actualEntries) !== mutation.expectedProfile ||
+      !areaItemLocalizedStringEntriesEqual(actualEntries, mutation.expectedEntries) ||
+      (actualEntries.find((candidate) => candidate.languageId === 0)?.text ?? "")
+        !== mutation.expectedValue
+    ) {
+      throw mutationInvalid(
+        `Item ${mutation.field} source differs from retained provenance.`,
+        [`item:index=${sourceIndex}:${mutation.field}:stale_source`],
+      );
+    }
+    return {
+      label: mutation.field,
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: mutation.valueEntries.map((candidate) => ({ ...candidate })),
+      },
+    };
+  }
+  return mutateInlineAsciiLocalizedStringField(
+    entry,
+    sourceIndex,
+    mutation,
+    "item",
+    "Item",
+    maxBytes,
+    true,
+  );
+}
+
+function mutateCreatureLocalizedStringField(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+  mutation: ExistingAreaCreatureNameLocalizedStringMutation,
+  maxBytes: number,
+): SupportedGffField {
+  if (
+    mutation.expectedProfile !== undefined &&
+    mutation.expectedEntries !== undefined &&
+    mutation.valueEntries !== undefined
+  ) {
+    const caseInsensitiveMatches = entry.fields.filter(
+      (field) => field.label.toLowerCase() === mutation.field.toLowerCase(),
+    );
+    const exactMatches = caseInsensitiveMatches.filter((field) => field.label === mutation.field);
+    const field = exactMatches[0];
+    if (
+      caseInsensitiveMatches.length !== 1 ||
+      exactMatches.length !== 1 ||
+      field?.type !== "cexolocstring"
+    ) {
+      throw mutationInvalid(
+        `Creature ${mutation.field} mutation requires one native CExoLocString field.`,
+        [
+          `creature:index=${sourceIndex}:${mutation.field}:count=${exactMatches.length}:type=${field?.type ?? "missing"}`,
+        ],
+      );
+    }
+    const actualEntries = field.value.strRef === 0xffff_ffff
+      ? readEditableAreaCreatureLocalizedStringEntries(field.value.entries ?? [], maxBytes)
+      : undefined;
+    if (!actualEntries) {
+      throw mutationInvalid(
+        `Creature ${mutation.field} source is outside the admitted ordered inline ASCII profile.`,
+        [`creature:index=${sourceIndex}:${mutation.field}:unsupported_source`],
+      );
+    }
+    if (
+      areaCreatureLocalizedStringProfileForEntries(actualEntries) !== mutation.expectedProfile ||
+      !areaCreatureLocalizedStringEntriesEqual(actualEntries, mutation.expectedEntries) ||
+      (actualEntries.find((candidate) => candidate.languageId === 0)?.text ?? "")
+        !== mutation.expectedValue
+    ) {
+      throw mutationInvalid(
+        `Creature ${mutation.field} source differs from retained provenance.`,
+        [`creature:index=${sourceIndex}:${mutation.field}:stale_source`],
+      );
+    }
+    return {
+      label: mutation.field,
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: mutation.valueEntries.map((candidate) => ({ ...candidate })),
+      },
+    };
+  }
+  return mutateInlineAsciiLocalizedStringField(
+    entry,
+    sourceIndex,
+    mutation,
+    "creature",
+    "Creature",
+    maxBytes,
+    true,
   );
 }
 
@@ -13479,6 +14002,142 @@ function mutateTriggerTransitionStorageEntry(
         return { label: "LoadScreenID", type: "word", value: mutation.value.loadScreenId };
       }
       return field;
+    }),
+  };
+}
+
+function readTriggerCorePropertiesFromEntry(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+): AreaTriggerCoreProperties {
+  if (entry.typeId !== 1) {
+    throw mutationInvalid(
+      "Trigger core-properties mutation requires one type-1 native Trigger struct.",
+      [`trigger:index=${sourceIndex}:struct_type=${entry.typeId}`],
+    );
+  }
+  const values: Record<string, unknown> = {};
+  for (const profile of AREA_TRIGGER_CORE_PROPERTY_FIELDS) {
+    const matches = entry.fields.filter(
+      (field) => field.label.toLowerCase() === profile.label.toLowerCase(),
+    );
+    const field = matches[0];
+    if (
+      matches.length !== 1
+      || field?.label !== profile.label
+      || field.type !== profile.type
+    ) {
+      throw mutationInvalid(
+        `Trigger core-properties mutation requires exact ${profile.label} storage.`,
+        [
+          `trigger:index=${sourceIndex}:${profile.label}:count=${matches.length}:type=${field?.type ?? "missing"}`,
+        ],
+      );
+    }
+    values[profile.key] = field.value;
+  }
+  if (!isAreaTriggerCoreProperties(values)) {
+    throw mutationInvalid(
+      "Trigger core-properties source tuple is outside the admitted profile.",
+      [`trigger:index=${sourceIndex}:coreProperties:invalid_source`],
+    );
+  }
+  return values;
+}
+
+function mutateTriggerCorePropertiesEntry(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+  mutation: ExistingAreaTriggerCorePropertiesMutation,
+): GffListField["value"][number] {
+  const source = readTriggerCorePropertiesFromEntry(entry, sourceIndex);
+  if (!areaTriggerCorePropertiesEqual(source, mutation.expectedValue)) {
+    throw mutationInvalid(
+      "Trigger core-properties storage differs from retained provenance.",
+      [`trigger:index=${sourceIndex}:coreProperties:stale_storage`],
+    );
+  }
+  const profileByLabel = new Map<string, (typeof AREA_TRIGGER_CORE_PROPERTY_FIELDS)[number]>(
+    AREA_TRIGGER_CORE_PROPERTY_FIELDS.map((profile) => [profile.label, profile] as const),
+  );
+  return {
+    typeId: entry.typeId,
+    fields: entry.fields.map((field): SupportedGffField => {
+      const profile = profileByLabel.get(field.label);
+      if (!profile) return field;
+      return {
+        label: profile.label,
+        type: profile.type,
+        value: mutation.value[profile.key],
+      } as SupportedGffField;
+    }),
+  };
+}
+
+function readTriggerTrapPropertiesFromEntry(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+): AreaTriggerTrapProperties {
+  if (entry.typeId !== 1) {
+    throw mutationInvalid(
+      "Trigger trap-properties mutation requires one type-1 native Trigger struct.",
+      [`trigger:index=${sourceIndex}:struct_type=${entry.typeId}`],
+    );
+  }
+  const values: Record<string, unknown> = {};
+  for (const profile of AREA_TRIGGER_TRAP_PROPERTY_FIELDS) {
+    const matches = entry.fields.filter(
+      (field) => field.label.toLowerCase() === profile.label.toLowerCase(),
+    );
+    const field = matches[0];
+    if (
+      matches.length !== 1
+      || field?.label !== profile.label
+      || field.type !== profile.type
+    ) {
+      throw mutationInvalid(
+        `Trigger trap-properties mutation requires exact ${profile.label} storage.`,
+        [
+          `trigger:index=${sourceIndex}:${profile.label}:count=${matches.length}:type=${field?.type ?? "missing"}`,
+        ],
+      );
+    }
+    values[profile.key] = field.value;
+  }
+  if (!isAreaTriggerTrapProperties(values)) {
+    throw mutationInvalid(
+      "Trigger trap-properties source tuple is outside the admitted profile.",
+      [`trigger:index=${sourceIndex}:trapProperties:invalid_source`],
+    );
+  }
+  return values as AreaTriggerTrapProperties;
+}
+
+function mutateTriggerTrapPropertiesEntry(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+  mutation: ExistingAreaTriggerTrapPropertiesMutation,
+): GffListField["value"][number] {
+  const source = readTriggerTrapPropertiesFromEntry(entry, sourceIndex);
+  if (!areaTriggerTrapPropertiesEqual(source, mutation.expectedValue)) {
+    throw mutationInvalid(
+      "Trigger trap-properties storage differs from retained provenance.",
+      [`trigger:index=${sourceIndex}:trapProperties:stale_storage`],
+    );
+  }
+  const profileByLabel = new Map<string, (typeof AREA_TRIGGER_TRAP_PROPERTY_FIELDS)[number]>(
+    AREA_TRIGGER_TRAP_PROPERTY_FIELDS.map((profile) => [profile.label, profile] as const),
+  );
+  return {
+    typeId: entry.typeId,
+    fields: entry.fields.map((field): SupportedGffField => {
+      const profile = profileByLabel.get(field.label);
+      if (!profile) return field;
+      return {
+        label: profile.label,
+        type: profile.type,
+        value: mutation.value[profile.key],
+      };
     }),
   };
 }
@@ -14760,6 +15419,162 @@ function mutateCreatureClassIdentityFields(
       value: mutation.startingPackage,
     },
   });
+}
+
+function mutateCreatureClassSpellClearField(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+  mutation: ExistingAreaCreatureClassSpellClearMutation,
+): SupportedGffField {
+  const matches = entry.fields.filter((field) => field.label.toLowerCase() === "classlist");
+  const source = matches[0];
+  if (matches.length !== 1 || source?.label !== "ClassList" || source.type !== "list") {
+    throw mutationInvalid(
+      "Creature class spell-list clear requires one canonical native ClassList.",
+      [`creature:index=${sourceIndex}:ClassList:missing_or_ambiguous`],
+    );
+  }
+  const analysis = analyzeAreaCreatureClassListField(source);
+  if (!analysis || analysis.classListGraphSha256 !== mutation.classListGraphSha256 ||
+    analysis.entries.length !== mutation.expectedClassIds.length ||
+    analysis.entries.some((classEntry, index) =>
+      classEntry.classId !== mutation.expectedClassIds[index] ||
+      classEntry.level !== mutation.expectedLevels[index])) {
+    throw mutationInvalid(
+      "Creature ClassList graph differs from retained spell-clear provenance.",
+      [`creature:index=${sourceIndex}:ClassList:stale_spell_clear_graph`],
+    );
+  }
+  const cleared = clearAreaCreatureClassSpellLists(
+    source,
+    mutation.expectedClassIds,
+    mutation.expectedLevels,
+    mutation.classSlotIndices,
+  );
+  if (!cleared) {
+    throw mutationInvalid(
+      "Creature ClassList could not be rewritten under the confirmed spell-clear contract.",
+      [`creature:index=${sourceIndex}:ClassList:spell_clear_refused`],
+    );
+  }
+  return cleared;
+}
+
+function mutateCreatureClassSpellRemovalField(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+  mutation: ExistingAreaCreatureClassSpellRemovalMutation,
+): SupportedGffField {
+  const matches = entry.fields.filter((field) => field.label.toLowerCase() === "classlist");
+  const source = matches[0];
+  if (matches.length !== 1 || source?.label !== "ClassList" || source.type !== "list") {
+    throw mutationInvalid(
+      "Creature class spell-entry removal requires one canonical native ClassList.",
+      [`creature:index=${sourceIndex}:ClassList:missing_or_ambiguous`],
+    );
+  }
+  const analysis = analyzeAreaCreatureClassListField(source);
+  if (!analysis || analysis.classListGraphSha256 !== mutation.classListGraphSha256 ||
+    analysis.entries.length !== mutation.expectedClassIds.length ||
+    analysis.entries.some((classEntry, index) =>
+      classEntry.classId !== mutation.expectedClassIds[index] ||
+      classEntry.level !== mutation.expectedLevels[index])) {
+    throw mutationInvalid(
+      "Creature ClassList graph differs from retained spell-removal provenance.",
+      [`creature:index=${sourceIndex}:ClassList:stale_spell_removal_graph`],
+    );
+  }
+  const removed = removeAreaCreatureClassSpellEntries(
+    source,
+    mutation.expectedClassIds,
+    mutation.expectedLevels,
+    mutation.targets,
+  );
+  if (!removed) {
+    throw mutationInvalid(
+      "Creature ClassList could not be rewritten under the confirmed spell-removal contract.",
+      [`creature:index=${sourceIndex}:ClassList:spell_removal_refused`],
+    );
+  }
+  return removed;
+}
+
+function mutateCreatureClassSpellReorderField(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+  mutation: ExistingAreaCreatureClassSpellReorderMutation,
+): SupportedGffField {
+  const matches = entry.fields.filter((field) => field.label.toLowerCase() === "classlist");
+  const source = matches[0];
+  if (matches.length !== 1 || source?.label !== "ClassList" || source.type !== "list") {
+    throw mutationInvalid(
+      "Creature class spell-entry reorder requires one canonical native ClassList.",
+      [`creature:index=${sourceIndex}:ClassList:missing_or_ambiguous`],
+    );
+  }
+  const analysis = analyzeAreaCreatureClassListField(source);
+  if (!analysis || analysis.classListGraphSha256 !== mutation.classListGraphSha256 ||
+    analysis.entries.length !== mutation.expectedClassIds.length ||
+    analysis.entries.some((classEntry, index) =>
+      classEntry.classId !== mutation.expectedClassIds[index] ||
+      classEntry.level !== mutation.expectedLevels[index])) {
+    throw mutationInvalid(
+      "Creature ClassList graph differs from retained spell-reorder provenance.",
+      [`creature:index=${sourceIndex}:ClassList:stale_spell_reorder_graph`],
+    );
+  }
+  const reordered = reorderAreaCreatureClassSpellEntries(
+    source,
+    mutation.expectedClassIds,
+    mutation.expectedLevels,
+    mutation.reorders,
+  );
+  if (!reordered) {
+    throw mutationInvalid(
+      "Creature ClassList could not be rewritten under the confirmed spell-reorder contract.",
+      [`creature:index=${sourceIndex}:ClassList:spell_reorder_refused`],
+    );
+  }
+  return reordered;
+}
+
+function mutateCreatureClassSpellReplacementField(
+  entry: GffListField["value"][number],
+  sourceIndex: number,
+  mutation: ExistingAreaCreatureClassSpellReplacementMutation,
+): SupportedGffField {
+  const matches = entry.fields.filter((field) => field.label.toLowerCase() === "classlist");
+  const source = matches[0];
+  if (matches.length !== 1 || source?.label !== "ClassList" || source.type !== "list") {
+    throw mutationInvalid(
+      "Creature class spell-entry replacement requires one canonical native ClassList.",
+      [`creature:index=${sourceIndex}:ClassList:missing_or_ambiguous`],
+    );
+  }
+  const analysis = analyzeAreaCreatureClassListField(source);
+  if (!analysis || analysis.classListGraphSha256 !== mutation.classListGraphSha256 ||
+    analysis.entries.length !== mutation.expectedClassIds.length ||
+    analysis.entries.some((classEntry, index) =>
+      classEntry.classId !== mutation.expectedClassIds[index] ||
+      classEntry.level !== mutation.expectedLevels[index])) {
+    throw mutationInvalid(
+      "Creature ClassList graph differs from retained spell-replacement provenance.",
+      [`creature:index=${sourceIndex}:ClassList:stale_spell_replacement_graph`],
+    );
+  }
+  const replaced = replaceAreaCreatureClassSpellEntries(
+    source,
+    mutation.expectedClassIds,
+    mutation.expectedLevels,
+    mutation.replacements,
+  );
+  if (!replaced) {
+    throw mutationInvalid(
+      "Creature ClassList could not be rewritten under the confirmed spell-replacement contract.",
+      [`creature:index=${sourceIndex}:ClassList:spell_replacement_refused`],
+    );
+  }
+  return replaced;
 }
 
 function mutateCreatureClassSlotResizeFields(
@@ -16944,6 +17759,14 @@ function propertyMutationDisplayLabel(mutation: ExistingAreaObjectPropertyMutati
             mutation.scripts?.expectedValue[field.key] !== mutation.scripts?.value[field.key])
           .map((field) => field.label)
         : []),
+      ...(mutation.transitionStorage ? ["LinkedTo", "LinkedToFlags", "LoadScreenID"] : []),
+      ...(mutation.coreProperties
+        ? AREA_TRIGGER_CORE_PROPERTY_FIELDS.map((field) => field.label)
+        : []),
+      ...(mutation.trapProperties
+        ? AREA_TRIGGER_TRAP_PROPERTY_FIELDS.map((field) => field.label)
+        : []),
+      ...(mutation.variables ? ["VarTable"] : []),
     ].join("+") || "property";
   }
   if (mutation.kind === "encounter") {
@@ -17067,6 +17890,10 @@ function propertyMutationDisplayLabel(mutation: ExistingAreaObjectPropertyMutati
       ...(mutation.classSlotResize
         ? ["ClassList(slot-count)", "StartingPackage"]
         : []),
+      ...(mutation.classSpellClear ? ["ClassList.SpellLists(clear)"] : []),
+      ...(mutation.classSpellRemoval ? ["ClassList.SpellEntries(remove)"] : []),
+      ...(mutation.classSpellReorder ? ["ClassList.SpellEntries(reorder)"] : []),
+      ...(mutation.classSpellReplacement ? ["ClassList.Spell(replace)"] : []),
       ...(mutation.hitPoints
         ? ["HitPoints", "CurrentHitPoints", "MaxHitPoints"]
         : []),

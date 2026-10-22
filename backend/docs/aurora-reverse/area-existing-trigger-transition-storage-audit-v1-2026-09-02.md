@@ -1,7 +1,7 @@
 # Existing Area Trigger transition storage audit v1
 
 Date: 2026-09-02  
-Status: source-closed; test-first implementation pending
+Status: source-closed and offline implemented/verified; release proof pending
 
 ## Decision
 
@@ -120,6 +120,24 @@ projector/planner/writer/candidate and persisted readback, GIC/ARE/IFO
 preservation, coexistence with other admitted Trigger changes, integration,
 regression, capability-catalog coverage, and both production builds.
 
+That offline boundary is implemented. Backend source parsing and dependency
+identity, detached projection, immutable-ordinal planning, three-field CAS
+writing, whole-candidate and persisted readback, content-free best-effort
+telemetry, and revision-fenced publication are covered. Frontend strict HTTP
+mapping, immutable source and editable target state, saved drafts, history
+cloning, visible raw controls, facade/viewport routing, and
+Apply/Cancel/reopen/OK/local-Save behavior are also covered. Capability catalog
+revision `2026-09-02.178` names the remaining runtime and release gates rather
+than promoting the complete Trigger or Area program.
+
+Verification on 2026-09-05 passed the affected backend slice at `1705/1705`,
+full Area Update integration at `88/88`, the affected frontend slice at
+`1294/1294`, full regression-smoke at `137/137`, and both production builds.
+The complete frontend unit run passed `5893/5895`; its only two failures are
+the pre-existing, out-of-slice Placeable render-package shape and renderer
+material-side expectations. They remain explicit global blockers and do not
+invalidate the green Trigger-transition-specific gates.
+
 Fresh guarded browser Save/reopen, exact-candidate Toolset Save/Build/reopen
 with packed GIT readback, and NWN traversal/loading-screen behavior remain
 independent release gates. This audit does not certify the numeric
@@ -129,7 +147,8 @@ wider Area/tile program.
 ## Resource/process statement
 
 This audit used immutable decompilation, frozen retail resources, and accepted
-readback evidence only. No Docker command, container, service, watcher,
-browser, Chrome, capture, Toolset/NWN process, mutation test, sub-agent,
-xoreos source, or other GPL source was used. No installed skill matches this
-offline static-decompilation and TypeScript contract slice.
+readback evidence only. Implementation and verification also remained offline.
+No Docker command, container, service, watcher, browser, Chrome, capture,
+Toolset/NWN process, mutation test, sub-agent, xoreos source, or other GPL
+source was used. No installed skill matches this offline static-decompilation
+and TypeScript contract slice.

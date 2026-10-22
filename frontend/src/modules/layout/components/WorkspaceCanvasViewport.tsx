@@ -260,6 +260,7 @@ import type { CreatureAdvancedFlagKey } from "../../scene/domain/creatureAdvance
 import {
   materializeExistingCreatureNameLocalizedStrings,
   reduceExistingCreatureNameLocalizedString,
+  reduceExistingCreatureNameLocalizedStringEntries,
 } from "../application/creatureLocalizedStringProvenance";
 import {
   materializeExistingPlaceableDurabilitySaveBytes,
@@ -296,6 +297,7 @@ import {
 } from "../application/itemTemplateResRefProvenance";
 import {
   reduceExistingItemLocalizedString,
+  reduceExistingItemLocalizedStringEntries,
 } from "../application/itemLocalizedStringProvenance";
 import {
   appendItemVariable as appendEditableItemVariable,
@@ -370,7 +372,8 @@ import {
 import { reduceExistingPlaceableTag } from "../application/placeableTagProvenance";
 import {
   materializeExistingPlaceableLocalizedStrings,
-  reduceExistingPlaceableLocalizedString
+  reduceExistingPlaceableLocalizedString,
+  reduceExistingPlaceableLocalizedStringEntries,
 } from "../application/placeableLocalizedStringProvenance";
 import {
   loadExistingPlaceableAppearanceCatalog,
@@ -434,6 +437,20 @@ import {
   reduceExistingCreatureClassIdentityStartingPackageId,
   type ExistingCreatureClassCatalog,
 } from "../application/creatureClassIdentityProvenance";
+import { materializeExistingCreatureClassSpellClear } from
+  "../application/creatureClassSpellClearProvenance";
+import {
+  filterRemovedCreatureClassSpells,
+  materializeExistingCreatureClassSpellRemoval,
+  readExistingCreatureClassSpellRemovalProvenance,
+  type CreatureClassSpellRemovalTarget,
+} from "../application/creatureClassSpellRemovalProvenance";
+import {
+  applyCreatureClassSpellReorders,
+  materializeExistingCreatureClassSpellReorder,
+  readExistingCreatureClassSpellReorderProvenance,
+  type CreatureClassSpellReorder,
+} from "../application/creatureClassSpellReorderProvenance";
 import {
   isExistingCreatureSkillCatalogAdmitted,
   loadExistingCreatureSkillCatalog,
@@ -595,6 +612,8 @@ import {
   materializeAreaObjectPolygonDraftScriptResRefs,
   materializeAreaObjectPolygonDraftTriggerScriptResRefs,
   materializeAreaObjectPolygonDraftTriggerTransitionStorage,
+  materializeAreaObjectPolygonDraftTriggerCoreProperties,
+  materializeAreaObjectPolygonDraftTriggerTrapProperties,
   materializeAreaObjectPolygonDraftTag,
   removeAreaObjectPolygonDraftPoint,
   removeAreaObjectPolygonDraftCreature,
@@ -622,6 +641,8 @@ import {
   updateAreaObjectPolygonDraftScriptResRef,
   updateAreaObjectPolygonDraftTriggerScriptResRef,
   updateAreaObjectPolygonDraftTriggerTransitionStorage,
+  updateAreaObjectPolygonDraftTriggerCoreProperties,
+  updateAreaObjectPolygonDraftTriggerTrapProperties,
   updateAreaObjectPolygonDraftTag,
   updateAreaObjectPolygonDraftPoint,
   type AreaObjectPolygonDraft,
@@ -640,8 +661,18 @@ import {
   triggerTransitionStoragesEqual,
   type TriggerTransitionStorage,
 } from "../../scene/domain/triggerTransitionStorage";
+import {
+  triggerCorePropertiesEqual,
+  type TriggerCoreProperties,
+} from "../../scene/domain/triggerCoreProperties";
+import {
+  triggerTrapPropertiesEqual,
+  type TriggerTrapProperties,
+} from "../../scene/domain/triggerTrapProperties";
 import { encounterVariableTargetEntriesEqual } from
   "../../scene/domain/encounterVariableTable";
+import { triggerVariableTargetEntriesEqual } from
+  "../../scene/domain/triggerVariableTable";
 import {
   encounterCreatureListTargetEntriesEqual,
   readEncounterCreatureBlueprintTargetEntry,
@@ -9570,6 +9601,38 @@ export function WorkspaceCanvasViewport({
       : current);
   }, []);
 
+  const updateAreaObjectPolygonTriggerCoreProperties = useCallback((
+    value: TriggerCoreProperties,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftTriggerCoreProperties(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonTriggerTrapProperties = useCallback((
+    value: TriggerTrapProperties,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftTriggerTrapProperties(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
   const updateAreaObjectPolygonFaction = useCallback((value: number) => {
     setAreaObjectPolygonDialog((current) => current
       ? {
@@ -9880,6 +9943,14 @@ export function WorkspaceCanvasViewport({
                 current.snapshotObject.source?.triggerScriptResRefsStorage,
               triggerTransitionStorage:
                 current.snapshotObject.source?.triggerTransitionStorage,
+              triggerCoreProperties:
+                current.snapshotObject.source?.triggerCoreProperties,
+              triggerTrapProperties:
+                current.snapshotObject.source?.triggerTrapProperties,
+              triggerVariables:
+                current.snapshotObject.source?.triggerVariables?.expectedEntries.map(
+                  ({ sourceIndex: _, ...entry }) => ({ ...entry }),
+                ),
             }
             : {}),
       },
@@ -9977,6 +10048,28 @@ export function WorkspaceCanvasViewport({
         triggerTransitionStorage,
         areaObjectPolygonDialog.snapshotObject.triggerTransitionStorage,
       );
+    const triggerCoreProperties =
+      materializeAreaObjectPolygonDraftTriggerCoreProperties(
+        areaObjectPolygonDialog.draft,
+        areaObjectPolygonDialog.snapshotObject.source,
+        areaObjectPolygonDialog.snapshotObject.triggerCoreProperties,
+      );
+    const triggerCorePropertiesChanged = triggerCoreProperties !== undefined
+      && !triggerCorePropertiesEqual(
+        triggerCoreProperties,
+        areaObjectPolygonDialog.snapshotObject.triggerCoreProperties,
+      );
+    const triggerTrapProperties =
+      materializeAreaObjectPolygonDraftTriggerTrapProperties(
+        areaObjectPolygonDialog.draft,
+        areaObjectPolygonDialog.snapshotObject.source,
+        areaObjectPolygonDialog.snapshotObject.triggerTrapProperties,
+      );
+    const triggerTrapPropertiesChanged = triggerTrapProperties !== undefined
+      && !triggerTrapPropertiesEqual(
+        triggerTrapProperties,
+        areaObjectPolygonDialog.snapshotObject.triggerTrapProperties,
+      );
     const encounterFactionId = materializeAreaObjectPolygonDraftFaction(
       areaObjectPolygonDialog.draft,
       areaObjectPolygonDialog.snapshotObject.source,
@@ -10033,16 +10126,23 @@ export function WorkspaceCanvasViewport({
       && areaObjectEditorCommentChanged;
     const triggerEditorCommentChanged = areaObjectPolygonDialog.objectKind === "triggers"
       && areaObjectEditorCommentChanged;
-    const encounterVariables = materializeAreaObjectPolygonDraftVariables(
+    const sourceAreaObjectVariables = areaObjectPolygonDialog.objectKind === "triggers"
+      ? areaObjectPolygonDialog.snapshotObject.triggerVariables
+      : areaObjectPolygonDialog.snapshotObject.encounterProperties?.variables;
+    const areaObjectVariables = materializeAreaObjectPolygonDraftVariables(
       areaObjectPolygonDialog.draft,
       areaObjectPolygonDialog.snapshotObject.source,
-      areaObjectPolygonDialog.snapshotObject.encounterProperties?.variables,
+      sourceAreaObjectVariables,
     );
-    const encounterVariablesChanged = encounterVariables !== undefined &&
-      !encounterVariableTargetEntriesEqual(
-        encounterVariables,
-        areaObjectPolygonDialog.snapshotObject.encounterProperties?.variables,
-      );
+    const areaObjectVariablesChanged = areaObjectVariables !== undefined && (
+      areaObjectPolygonDialog.objectKind === "triggers"
+        ? !triggerVariableTargetEntriesEqual(areaObjectVariables, sourceAreaObjectVariables)
+        : !encounterVariableTargetEntriesEqual(areaObjectVariables, sourceAreaObjectVariables)
+    );
+    const encounterVariablesChanged = areaObjectPolygonDialog.objectKind === "encounters"
+      && areaObjectVariablesChanged;
+    const triggerVariablesChanged = areaObjectPolygonDialog.objectKind === "triggers"
+      && areaObjectVariablesChanged;
     const encounterCreatureList = materializeAreaObjectPolygonDraftCreatureList(
       areaObjectPolygonDialog.draft,
       areaObjectPolygonDialog.snapshotObject.source,
@@ -10084,7 +10184,7 @@ export function WorkspaceCanvasViewport({
           ? areaObjectLocalizedName
           : undefined,
         encounterEditorCommentChanged ? areaObjectEditorComment : undefined,
-        encounterVariablesChanged ? encounterVariables : undefined,
+        encounterVariablesChanged ? areaObjectVariables : undefined,
         encounterCreatureListChanged ? encounterCreatureList : undefined,
         encounterSpawnPointsChanged ? encounterSpawnPoints : undefined,
       );
@@ -10123,13 +10223,34 @@ export function WorkspaceCanvasViewport({
             triggerScriptResRefs,
           )
         : editorCommentScene;
-      const nextScene = triggerTransitionStorageChanged
-        ? sceneViewportPort.setExistingTriggerTransitionStorageById(
+      const variableScene = triggerVariablesChanged
+        ? sceneViewportPort.setExistingTriggerVariablesById(
             scriptScene,
+            objectId,
+            areaObjectVariables!,
+          )
+        : scriptScene;
+      const transitionScene = triggerTransitionStorageChanged
+        ? sceneViewportPort.setExistingTriggerTransitionStorageById(
+            variableScene,
             objectId,
             triggerTransitionStorage,
           )
-        : scriptScene;
+        : variableScene;
+      const coreScene = triggerCorePropertiesChanged
+        ? sceneViewportPort.setExistingTriggerCorePropertiesById(
+            transitionScene,
+            objectId,
+            triggerCoreProperties,
+          )
+        : transitionScene;
+      const nextScene = triggerTrapPropertiesChanged
+        ? sceneViewportPort.setExistingTriggerTrapPropertiesById(
+            coreScene,
+            objectId,
+            triggerTrapProperties,
+          )
+        : coreScene;
       return nextScene === current.present
         ? current
         : sceneViewportPort.commitHistory(current, nextScene);
@@ -10160,6 +10281,8 @@ export function WorkspaceCanvasViewport({
       encounterScriptResRefsChanged,
       triggerScriptResRefsChanged,
       triggerTransitionStorageChanged,
+      triggerCorePropertiesChanged,
+      triggerTrapPropertiesChanged,
       encounterFactionChanged,
       encounterDifficultyChanged,
       encounterTemplateResRefChanged: areaObjectPolygonDialog.objectKind === "encounters"
@@ -10173,6 +10296,7 @@ export function WorkspaceCanvasViewport({
       encounterEditorCommentChanged,
       triggerEditorCommentChanged,
       encounterVariablesChanged,
+      triggerVariablesChanged,
       encounterCreatureListChanged,
       encounterSpawnPointsChanged,
       closeAfterApply,
@@ -10928,6 +11052,7 @@ export function WorkspaceCanvasViewport({
     (
       field:
         | "name"
+        | "localizedNameEntries"
         | "tag"
         | "resRef"
         | "appearanceType"
@@ -10943,14 +11068,44 @@ export function WorkspaceCanvasViewport({
         | "reflexSave"
         | "willSave"
         | "description"
+        | "descriptionEntries"
         | "comments",
-      value: string | boolean | number
+      value:
+        | string
+        | boolean
+        | number
+        | NonNullable<PlaceablePropertiesDraft["localizedNameEntries"]>
+        | NonNullable<PlaceablePropertiesDraft["descriptionEntries"]>
     ) => {
       setPlaceablePropertiesDialog((current) => {
         if (!current) {
           return current;
         }
         const source = current.snapshotObject.source;
+        if (field === "localizedNameEntries" || field === "descriptionEntries") {
+          if (!Array.isArray(value)) return current;
+          const targetField = field === "localizedNameEntries"
+            ? "localizedName"
+            : "description";
+          const draftScalarField = field === "localizedNameEntries" ? "name" : "description";
+          const nextEntries = reduceExistingPlaceableLocalizedStringEntries(
+            source,
+            targetField,
+            current.draft[field] ?? [],
+            value,
+          );
+          if (JSON.stringify(nextEntries) === JSON.stringify(current.draft[field] ?? [])) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              [field]: nextEntries,
+              [draftScalarField]: nextEntries.find((entry) => entry.languageId === 0)?.text ?? "",
+            },
+          };
+        }
         if (
           field === "isStatic" &&
           !canEditExistingPlaceableBoolean(source, "isStatic")
@@ -11003,7 +11158,17 @@ export function WorkspaceCanvasViewport({
             ...current,
             draft: {
               ...current.draft,
-              [field]: nextValue
+              [field]: nextValue,
+              ...(field === "name" && current.draft.localizedNameEntries
+                ? {
+                    localizedNameEntries: current.draft.localizedNameEntries.length === 0
+                      ? nextValue.length === 0
+                        ? []
+                        : [{ languageId: 0, text: nextValue }]
+                      : current.draft.localizedNameEntries.map((entry) =>
+                          entry.languageId === 0 ? { ...entry, text: nextValue } : { ...entry }),
+                  }
+                : {}),
             }
           };
         }
@@ -11056,7 +11221,20 @@ export function WorkspaceCanvasViewport({
           if (nextValue === current.draft.description) return current;
           return {
             ...current,
-            draft: { ...current.draft, description: nextValue }
+            draft: {
+              ...current.draft,
+              description: nextValue,
+              ...(current.draft.descriptionEntries
+                ? {
+                    descriptionEntries: current.draft.descriptionEntries.length === 0
+                      ? nextValue.length === 0
+                        ? []
+                        : [{ languageId: 0, text: nextValue }]
+                      : current.draft.descriptionEntries.map((entry) =>
+                          entry.languageId === 0 ? { ...entry, text: nextValue } : { ...entry }),
+                  }
+                : {}),
+            }
           };
         }
         const durabilitySaveByteField =
@@ -11690,7 +11868,16 @@ export function WorkspaceCanvasViewport({
         const nextLocalizedStrings = materializeExistingPlaceableLocalizedStrings(
           source,
           sourcePlaceableProperties,
-          { localizedName: draft.name, description: draft.description }
+          {
+            localizedName: draft.name,
+            ...(draft.localizedNameEntries
+              ? { localizedNameEntries: draft.localizedNameEntries }
+              : {}),
+            description: draft.description,
+            ...(draft.descriptionEntries
+              ? { descriptionEntries: draft.descriptionEntries }
+              : {}),
+          }
         );
         const nextName = nextLocalizedStrings.localizedName ?? nextBasicIdentity.name;
         const nextPlaceableProperties: NonNullable<SceneObject["placeableProperties"]> = {
@@ -13688,10 +13875,123 @@ export function WorkspaceCanvasViewport({
   }, []);
 
   const updateCreaturePropertiesDraftField = useCallback(
-    (field: keyof CreaturePropertiesDraft, value: string | number | boolean) => {
+    (
+      field: keyof CreaturePropertiesDraft,
+      value:
+        | string
+        | number
+        | boolean
+        | readonly number[]
+        | readonly CreatureClassSpellRemovalTarget[]
+        | readonly CreatureClassSpellReorder[]
+        | NonNullable<CreaturePropertiesDraft["firstNameEntries"]>
+        | NonNullable<CreaturePropertiesDraft["lastNameEntries"]>
+        | NonNullable<CreaturePropertiesDraft["descriptionEntries"]>,
+    ) => {
       setCreaturePropertiesDialog((current) => {
         if (!current) {
           return current;
+        }
+        if (field === "classSpellClearSlotIndices") {
+          if (!Array.isArray(value) || value.some((entry) => !Number.isSafeInteger(entry))) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              classSpellClearSlotIndices: [...value] as number[],
+            },
+          };
+        }
+        if (field === "classSpellClearConfirmed") {
+          if (typeof value !== "boolean") return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              classSpellClearConfirmed: value,
+              ...(!value ? { classSpellClearSlotIndices: [] } : {}),
+            },
+          };
+        }
+        if (field === "classSpellRemovalTargets") {
+          if (!Array.isArray(value) || value.some((entry) =>
+            typeof entry !== "object" || entry === null || Array.isArray(entry))) return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              classSpellRemovalTargets: value.map((target) => ({
+                ...(target as CreatureClassSpellRemovalTarget),
+              })),
+            },
+          };
+        }
+        if (field === "classSpellRemovalConfirmed") {
+          if (typeof value !== "boolean") return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              classSpellRemovalConfirmed: value,
+              ...(!value ? { classSpellRemovalTargets: [] } : {}),
+            },
+          };
+        }
+        if (field === "classSpellReorders") {
+          if (!Array.isArray(value) || value.some((entry) =>
+            typeof entry !== "object" || entry === null || Array.isArray(entry))) return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              classSpellReorders: value.map((reorder) => ({
+                ...(reorder as CreatureClassSpellReorder),
+                entryOrder: [...(reorder as CreatureClassSpellReorder).entryOrder],
+              })),
+            },
+          };
+        }
+        if (field === "classSpellReorderConfirmed") {
+          if (typeof value !== "boolean") return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              classSpellReorderConfirmed: value,
+              ...(!value ? { classSpellReorders: [] } : {}),
+            },
+          };
+        }
+        if (
+          field === "firstNameEntries" ||
+          field === "lastNameEntries" ||
+          field === "descriptionEntries"
+        ) {
+          if (!Array.isArray(value)) return current;
+          const targetField = field === "firstNameEntries"
+            ? "firstName"
+            : field === "lastNameEntries"
+              ? "lastName"
+              : "description";
+          const nextEntries = reduceExistingCreatureNameLocalizedStringEntries(
+            current.snapshotObject.source,
+            targetField,
+            current.draft[field] ?? [],
+            value,
+          );
+          if (JSON.stringify(nextEntries) === JSON.stringify(current.draft[field] ?? [])) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              [field]: nextEntries,
+              [targetField]: nextEntries.find((entry) => entry.languageId === 0)?.text ?? "",
+            },
+          };
         }
         if (field === "portraitId") {
           const nextDraft = reduceExistingCreaturePortrait(
@@ -13704,7 +14004,8 @@ export function WorkspaceCanvasViewport({
             ? current
             : { ...current, draft: nextDraft };
         }
-        const nextValue = field === "firstName" || field === "lastName"
+        const nextValue = field === "firstName" || field === "lastName" ||
+          field === "description"
           ? reduceExistingCreatureNameLocalizedString(
               current.snapshotObject.source,
               field,
@@ -13803,7 +14104,31 @@ export function WorkspaceCanvasViewport({
                           value,
                         )
                       : value;
-        let nextDraft = { ...current.draft, [field]: nextValue };
+        const localizedEntryField = field === "firstName"
+          ? "firstNameEntries"
+          : field === "lastName"
+            ? "lastNameEntries"
+            : field === "description"
+              ? "descriptionEntries"
+              : undefined;
+        const currentEntries = localizedEntryField
+          ? current.draft[localizedEntryField]
+          : undefined;
+        let nextDraft = {
+          ...current.draft,
+          [field]: nextValue,
+          ...(localizedEntryField && currentEntries && typeof nextValue === "string"
+            ? {
+                [localizedEntryField]: currentEntries.length === 0
+                  ? nextValue.length === 0
+                    ? []
+                    : [{ languageId: 0, text: nextValue }]
+                  : currentEntries.map((entry) => entry.languageId === 0
+                    ? { ...entry, text: nextValue }
+                    : { ...entry }),
+              }
+            : {}),
+        };
         if ((field === "constitution" || field === "baseHitPoints") &&
           current.snapshotObject.source?.type === "aurora_git") {
           const classLevels = readCreatureHitPointCoupledClassLevels(
@@ -13893,6 +14218,12 @@ export function WorkspaceCanvasViewport({
             classEntries: nextEntries,
             classIdentityDestructiveSpellClearConfirmed: false,
             classSlotResizeDestructiveRemovalConfirmed: false,
+            classSpellClearSlotIndices: [],
+            classSpellClearConfirmed: false,
+            classSpellRemovalTargets: [],
+            classSpellRemovalConfirmed: false,
+            classSpellReorders: [],
+            classSpellReorderConfirmed: false,
           },
         });
         void loadCreatureStartingPackageCatalogForDialog(
@@ -13934,6 +14265,12 @@ export function WorkspaceCanvasViewport({
               ...current.draft,
               ...coupled,
               classEntries: nextEntries,
+              classSpellClearSlotIndices: [],
+              classSpellClearConfirmed: false,
+              classSpellRemovalTargets: [],
+              classSpellRemovalConfirmed: false,
+              classSpellReorders: [],
+              classSpellReorderConfirmed: false,
             },
           };
         }
@@ -14611,6 +14948,12 @@ export function WorkspaceCanvasViewport({
         classEntries: nextEntries,
         classIdentityDestructiveSpellClearConfirmed: false,
         classSlotResizeDestructiveRemovalConfirmed: false,
+        classSpellClearSlotIndices: [],
+        classSpellClearConfirmed: false,
+        classSpellRemovalTargets: [],
+        classSpellRemovalConfirmed: false,
+        classSpellReorders: [],
+        classSpellReorderConfirmed: false,
       },
     });
     void loadCreatureStartingPackageCatalogForDialog(
@@ -14673,6 +15016,12 @@ export function WorkspaceCanvasViewport({
         classIdentityDestructiveSpellClearConfirmed: false,
         classSlotResizeDestructiveRemovalConfirmed:
           nextEntries.length < provenance.sourceClassIds.length,
+        classSpellClearSlotIndices: [],
+        classSpellClearConfirmed: false,
+        classSpellRemovalTargets: [],
+        classSpellRemovalConfirmed: false,
+        classSpellReorders: [],
+        classSpellReorderConfirmed: false,
       },
     });
     void loadCreatureStartingPackageCatalogForDialog(
@@ -14995,6 +15344,41 @@ export function WorkspaceCanvasViewport({
               startingPackageCatalog,
             )
           : null;
+        const classSpellClear = isRetainedCreature
+          ? materializeExistingCreatureClassSpellClear(
+              sourceObject.source,
+              requestedClassEntries,
+              draft.classSpellClearSlotIndices,
+              draft.classSpellClearConfirmed,
+            )
+          : null;
+        const requestedClassSpellMutationCount = Number(
+          draft.classSpellClearSlotIndices.length > 0,
+        ) + Number(draft.classSpellRemovalTargets.length > 0) +
+          Number(draft.classSpellReorders.length > 0);
+        if (requestedClassSpellMutationCount > 1) return current;
+        if (isRetainedCreature && draft.classSpellClearSlotIndices.length > 0 &&
+          !classSpellClear) return current;
+        const classSpellRemoval = isRetainedCreature
+          ? materializeExistingCreatureClassSpellRemoval(
+              sourceObject.source,
+              requestedClassEntries,
+              draft.classSpellRemovalTargets,
+              draft.classSpellRemovalConfirmed,
+            )
+          : null;
+        if (isRetainedCreature && draft.classSpellRemovalTargets.length > 0 &&
+          !classSpellRemoval) return current;
+        const classSpellReorder = isRetainedCreature
+          ? materializeExistingCreatureClassSpellReorder(
+              sourceObject.source,
+              requestedClassEntries,
+              draft.classSpellReorders,
+              draft.classSpellReorderConfirmed,
+            )
+          : null;
+        if (isRetainedCreature && draft.classSpellReorders.length > 0 &&
+          !classSpellReorder) return current;
         const nextClassEntries = classSlotResize?.classEntries ??
           classIdentity?.classEntries ?? (isRetainedCreature
           ? materializeExistingCreatureClassEntries(
@@ -15006,6 +15390,28 @@ export function WorkspaceCanvasViewport({
         const nextStartingPackageId = classSlotResize?.startingPackageId ??
           classIdentity?.startingPackageId ??
           regularNextStartingPackageId;
+        const classSpellRemovalProvenance = readExistingCreatureClassSpellRemovalProvenance(
+          sourceObject.source,
+        );
+        const classSpellReorderProvenance = readExistingCreatureClassSpellReorderProvenance(
+          sourceObject.source,
+        );
+        const nextSpells = classSpellClear
+          ? draft.spells.filter((entry) => entry.classIndex === undefined ||
+              !classSpellClear.classSlotIndices.includes(entry.classIndex))
+          : classSpellRemoval && classSpellRemovalProvenance
+            ? filterRemovedCreatureClassSpells(
+                draft.spells,
+                classSpellRemovalProvenance,
+                classSpellRemoval.targets,
+              )
+          : classSpellReorder && classSpellReorderProvenance
+            ? applyCreatureClassSpellReorders(
+                draft.spells,
+                classSpellReorderProvenance,
+                classSpellReorder.reorders,
+              )
+          : draft.spells;
         const nextSkillListTruncationConfirmed = isRetainedCreature &&
           isExistingCreatureSkillCatalogAdmitted(sourceObject.source, skillCatalog)
           ? draft.skillListTruncationConfirmed
@@ -15196,8 +15602,17 @@ export function WorkspaceCanvasViewport({
           sourceObject.creatureProperties,
           {
             firstName: draft.firstName,
+            ...(draft.firstNameEntries !== undefined
+              ? { firstNameEntries: draft.firstNameEntries }
+              : {}),
             lastName: draft.lastName,
+            ...(draft.lastNameEntries !== undefined
+              ? { lastNameEntries: draft.lastNameEntries }
+              : {}),
             description: draft.description,
+            ...(draft.descriptionEntries !== undefined
+              ? { descriptionEntries: draft.descriptionEntries }
+              : {}),
           },
         );
         const nextFirstName = nextLocalizedNames.firstName
@@ -15341,7 +15756,17 @@ export function WorkspaceCanvasViewport({
 
         const nextCreatureProperties = {
           firstName: nextFirstName,
+          ...(nextLocalizedNames.firstNameEntries !== undefined
+            ? {
+                firstNameEntries: nextLocalizedNames.firstNameEntries.map((entry) => ({ ...entry })),
+              }
+            : {}),
           lastName: nextLastName,
+          ...(nextLocalizedNames.lastNameEntries !== undefined
+            ? {
+                lastNameEntries: nextLocalizedNames.lastNameEntries.map((entry) => ({ ...entry })),
+              }
+            : {}),
           race: draft.race.trim(),
           appearance: draft.appearance.trim(),
           ...(nextAppearanceType !== undefined ? { appearanceType: nextAppearanceType } : {}),
@@ -15350,6 +15775,13 @@ export function WorkspaceCanvasViewport({
           gender: nextGender,
           ...(nextGenderId !== undefined ? { genderId: nextGenderId } : {}),
           description: nextDescription,
+          ...(nextLocalizedNames.descriptionEntries !== undefined
+            ? {
+                descriptionEntries: nextLocalizedNames.descriptionEntries.map((entry) => ({
+                  ...entry,
+                })),
+              }
+            : {}),
           challengeRating: nextChallengeRating,
           portraitResRef: nextPortraitDraft.portraitResRef.trim(),
           ...(nextPortraitDraft.portraitId === undefined
@@ -15407,6 +15839,17 @@ export function WorkspaceCanvasViewport({
             classIdentity?.destructiveSpellClearConfirmed ?? false,
           classSlotResizeDestructiveRemovalConfirmed:
             classSlotResize?.destructiveRemovedSlotsConfirmed ?? false,
+          classSpellClearSlotIndices: classSpellClear?.classSlotIndices ?? [],
+          classSpellClearConfirmed:
+            classSpellClear?.destructiveSpellClearConfirmed ?? false,
+          classSpellRemovalTargets: classSpellRemoval?.targets.map((target) => ({ ...target })) ?? [],
+          classSpellRemovalConfirmed:
+            classSpellRemoval?.destructiveSpellRemovalConfirmed ?? false,
+          classSpellReorders: classSpellReorder?.reorders.map((reorder) => ({
+            ...reorder,
+            entryOrder: [...reorder.entryOrder],
+          })) ?? [],
+          classSpellReorderConfirmed: classSpellReorder?.spellReorderConfirmed ?? false,
           templateEntries: draft.templateEntries.map((entry) => ({ ...entry })),
           skills: nextSkills.map((entry) => ({
             ...(typeof entry.skillId === "number" ? { skillId: entry.skillId } : {}),
@@ -15417,7 +15860,7 @@ export function WorkspaceCanvasViewport({
           ...(nextScriptSlots ? { scriptSlots: { ...nextScriptSlots } } : {}),
           advancedSettings: nextCreatureAdvancedSettings,
           feats: nextFeats.map((entry) => ({ ...entry })),
-          spells: draft.spells.map((entry) => ({ ...entry })),
+          spells: nextSpells.map((entry) => ({ ...entry })),
           specialAbilities: nextSpecialAbilities.map((entry) => ({ ...entry })),
           variables: nextCreatureVariables,
           ...(nextInventoryItems !== undefined ? { inventoryItems: nextInventoryItems } : {}),
@@ -15704,10 +16147,49 @@ export function WorkspaceCanvasViewport({
   }, []);
 
   const updateItemPropertiesDraftField = useCallback(
-    (field: keyof ItemPropertiesDraft, value: string | number | boolean | undefined) => {
+    (
+      field: keyof ItemPropertiesDraft,
+      value:
+        | string
+        | number
+        | boolean
+        | undefined
+        | NonNullable<ItemPropertiesDraft["localizedNameEntries"]>
+        | NonNullable<ItemPropertiesDraft["descriptionEntries"]>
+        | NonNullable<ItemPropertiesDraft["identifiedDescriptionEntries"]>,
+    ) => {
       setItemPropertiesDialog((current) => {
         if (!current) {
           return current;
+        }
+        if (
+          field === "localizedNameEntries" ||
+          field === "descriptionEntries" ||
+          field === "identifiedDescriptionEntries"
+        ) {
+          if (!Array.isArray(value)) return current;
+          const targetField = field === "localizedNameEntries"
+            ? "localizedName"
+            : field === "descriptionEntries"
+              ? "description"
+              : "identifiedDescription";
+          const nextEntries = reduceExistingItemLocalizedStringEntries(
+            current.snapshotObject.source,
+            targetField,
+            current.draft[field] ?? [],
+            value,
+          );
+          if (JSON.stringify(nextEntries) === JSON.stringify(current.draft[field] ?? [])) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              [field]: nextEntries,
+              [targetField]: nextEntries.find((entry) => entry.languageId === 0)?.text ?? "",
+            },
+          };
         }
         if (field === "baseItem" &&
           !isItemWizardBlueprintEditorObject(current.snapshotObject)) {
@@ -15763,7 +16245,31 @@ export function WorkspaceCanvasViewport({
                 value,
               )
             : value;
-        const nextDraft = { ...current.draft, [field]: nextValue };
+        const localizedEntryField = field === "localizedName"
+          ? "localizedNameEntries"
+          : field === "description"
+            ? "descriptionEntries"
+            : field === "identifiedDescription"
+              ? "identifiedDescriptionEntries"
+              : undefined;
+        const currentEntries = localizedEntryField
+          ? current.draft[localizedEntryField]
+          : undefined;
+        const nextDraft = {
+          ...current.draft,
+          [field]: nextValue,
+          ...(localizedEntryField && currentEntries && typeof nextValue === "string"
+            ? {
+                [localizedEntryField]: currentEntries.length === 0
+                  ? nextValue.length === 0
+                    ? []
+                    : [{ languageId: 0, text: nextValue }]
+                  : currentEntries.map((entry) => entry.languageId === 0
+                    ? { ...entry, text: nextValue }
+                    : { ...entry }),
+              }
+            : {}),
+        };
         if (areItemPropertiesDraftsEqual(current.draft, nextDraft)) {
           return current;
         }
@@ -17005,6 +17511,12 @@ export function WorkspaceCanvasViewport({
           onTriggerScriptResRefChange={updateAreaObjectPolygonTriggerScriptResRef}
           onTriggerTransitionStorageChange={
             updateAreaObjectPolygonTriggerTransitionStorage
+          }
+          onTriggerCorePropertiesChange={
+            updateAreaObjectPolygonTriggerCoreProperties
+          }
+          onTriggerTrapPropertiesChange={
+            updateAreaObjectPolygonTriggerTrapProperties
           }
           encounterFactionCatalog={sceneHistory.present.placeableFactionCatalog ?? null}
           onFactionChange={updateAreaObjectPolygonFaction}

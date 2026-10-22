@@ -327,6 +327,9 @@ export function buildAreaProcessCacheKey(area: AreaRecord): string {
     if (object.waypointVariables) {
       hash.update(`|waypoint-variables:${JSON.stringify(object.waypointVariables)}`);
     }
+    if (object.triggerVariables) {
+      hash.update(`|trigger-variables:${JSON.stringify(object.triggerVariables)}`);
+    }
     if (object.waypointAppearance) {
       hash.update(`|waypoint-appearance:${JSON.stringify(object.waypointAppearance)}`);
     }

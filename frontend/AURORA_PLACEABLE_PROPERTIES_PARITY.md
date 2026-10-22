@@ -1,7 +1,7 @@
 # Aurora Placeable Properties Parity Notes
 
 Date: 2026-08-19
-Status: Existing-instance native property lanes include tested TrapType, BodyBag/Treasure Model, exact TemplateResRef, canonical PortraitId, module-bound Faction, and complete native type-1/2/3 Variable-table implementations; effective-catalog UTP Placeable Create is offline implemented; complete multilingual localized text, optional mutation analysis, and native runtime certification remain open
+Status: Existing-instance native property lanes include tested TrapType, BodyBag/Treasure Model, exact TemplateResRef, canonical PortraitId, module-bound Faction, complete native type-1/2/3 Variable-table implementations, and complete ordered inline-ASCII LocName/Description lists; effective-catalog UTP Placeable Create is offline implemented; TLK/code-page localized text, unresolved language-entry synthesis, optional mutation analysis, and native runtime certification remain open
 
 ## Purpose
 
@@ -36,7 +36,7 @@ contracts.
 
 | Tab | Control/native field | Current status | Exact boundary |
 | --- | --- | --- | --- |
-| Basic | Name / `LocName` | `OFFLINE_VERIFIED` | Editable only for one present inline/custom (`strRef=0xffffffff`) empty-or-single language-0 printable-ASCII value, maximum 256 bytes. Every other exact retained storage shape remains preserve-only. |
+| Basic | Name / `LocName` | `OFFLINE_VERIFIED` | Editable for one present inline/custom (`strRef=0xffffffff`) ordered printable-ASCII list of `0..64` unique numeric identifiers, with identifier `0` required whenever nonempty and limited to 256 bytes. Existing unknown identifiers may be preserved/edited/moved/removed; new identifiers are limited to the frozen verified catalog. TLK, non-ASCII, duplicate, and nonzero-only profiles remain preserve-only. |
 | Basic | Tag / `Tag` | `OFFLINE_VERIFIED` | Present canonical CExoString only; immutable `(sourceKind, sourceIndex)` locator; exact `0..32` code units; no NUL, trim, normalization, folding, or truncation. |
 | Basic | Appearance Type / `Appearance` | `OFFLINE_VERIFIED` | Canonical present `DWord`; digest-bound effective `placeables.2da`; target is one existing zero-based physical row; exact writer/readback preserves every other GIT field and every GIC byte. |
 | Basic | Static / `Static` | `OFFLINE_VERIFIED` | Exact present `Byte` `0/1`; independent of Useable. |
@@ -68,7 +68,7 @@ contracts.
 | Advanced | Portrait / `PortraitId` | `OFFLINE_IMPLEMENTED` | Exactly one canonical present native `Word`; digest-bound strongest module/ordered-HAK/vanilla `portraits.2da`; target is one selectable sparse physical row and its `BaseResRef` is derived display data only. Legacy `Portrait : ResRef` is never authored. |
 | Advanced | Faction / `Faction` | `OFFLINE_IMPLEMENTED` | Canonical present native `DWord`; target is one zero-based physical row in exact module `repute.fac`; the digest/count-bound selector derives the display name and never treats a name as native identity. |
 | Advanced | Variables / `VarTable` | `OFFLINE_IMPLEMENTED` | Ordered native list of exact struct-type-0 entries: `Name : CExoString`, `Type : DWord`, and typed `Value` (`1`: Int, `2`: Float, `3`: CExoString). Add/edit/remove/reorder preserve duplicates and exact order; empty target removes the list. The web safety profile is 1,024 entries, 64 code units per name, 4,096 per string value, and 1 MiB total text; malformed or unsupported native storage remains preserve-only. |
-| Description | Localized gameplay Description | `OFFLINE_VERIFIED` | Independently editable under the same inline language-0 printable-ASCII profile, maximum 4,096 bytes. TLK-backed, multilingual, non-ASCII, absent, and malformed storage remains preserve-only. |
+| Description | Localized gameplay Description | `OFFLINE_VERIFIED` | Independently editable under the same complete ordered inline printable-ASCII list contract; identifier `0` is limited to 4,096 bytes. Exact empty targets are supported. TLK-backed, non-ASCII, duplicate, nonzero-only, absent, and malformed storage remains preserve-only. |
 | Comments | paired-GIC `Comment` | `OFFLINE_VERIFIED` | Exact ordinal-paired CExoString; `0..4096` ECMAScript code units; no NUL, trim, Unicode normalization, case folding, or truncation. |
 
 ## New Placeable construction lane
@@ -344,10 +344,12 @@ is 93/93 and smoke has no teardown errors.
 
 Next work, in order:
 
-1. `COMPLETED_BOUNDED 2026-08-19`: exact inline language-0 printable-ASCII
-   mutation, writer/readback, and UI admission for Name and Description.
-2. Keep full multilingual/TLK-backed localized-string editing preserve-only
-   until its complete editor semantics and native certification are closed.
+1. `COMPLETED_BOUNDED 2026-09-13`: exact complete ordered inline
+   printable-ASCII mutation, writer/readback, persistence, and visible
+   add/edit/remove/reorder UI for Name and Description.
+2. Keep TLK transitions, arbitrary native code-page text, and unresolved
+   language-entry synthesis preserve-only until their semantics and native
+   certification are closed.
 3. `COMPLETED 2026-08-19`: repair the outdated copy-on-open, provenance, and
    renderer fixtures and pass the full frontend unit and regression-smoke
    gates. Signed native object Z is now preserved rather than clamped to zero.

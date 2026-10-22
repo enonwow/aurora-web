@@ -3,6 +3,10 @@ import {
   isPlaceableInlineAsciiText,
   MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES,
   MAX_PLACEABLE_LOC_NAME_ASCII_BYTES,
+  cloneEditablePlaceableLocalizedStringEntries,
+  placeableLocalizedStringEntriesEqual,
+  readEditablePlaceableLocalizedStringEntries,
+  readEditablePlaceableLocalizedStringStorage,
   readPlaceableInlineAsciiStorage,
   readPlaceableLocalizedStrings,
 } from "../../../../../src/modules/scene/domain/placeableLocalizedStrings";
@@ -129,6 +133,57 @@ describe("placeable localized-string storage provenance", () => {
     const unpadded = exactValue();
     unpadded.description.entries[0].textBytesBase64 = "AABA";
     expect(readPlaceableLocalizedStrings(unpadded)?.description).toEqual(unpadded.description);
+  });
+
+  it("admits and detaches the complete ordered inline-ASCII editor profile", () => {
+    const source = {
+      present: true as const,
+      strRef: 0xffff_ffff,
+      entries: [
+        { languageId: 10, textBytesBase64: "U2tyenluaWE=" },
+        { languageId: 0, textBytesBase64: "Q2hlc3Q=" },
+        { languageId: 2, textBytesBase64: "" },
+      ],
+    };
+    const parsed = readEditablePlaceableLocalizedStringStorage(
+      source,
+      MAX_PLACEABLE_LOC_NAME_ASCII_BYTES,
+    );
+    expect(parsed).toEqual({
+      value: "Chest",
+      profile: "multi_entry_inline_ascii",
+      entries: [
+        { languageId: 10, text: "Skrzynia" },
+        { languageId: 0, text: "Chest" },
+        { languageId: 2, text: "" },
+      ],
+    });
+    expect(parsed?.entries).not.toBe(source.entries);
+    const clone = cloneEditablePlaceableLocalizedStringEntries(parsed!.entries);
+    expect(clone).toEqual(parsed!.entries);
+    expect(clone).not.toBe(parsed!.entries);
+    expect(placeableLocalizedStringEntriesEqual(clone, parsed!.entries)).toBe(true);
+  });
+
+  it("validates complete target lists and rejects duplicate, alternate-only, and over-budget state", () => {
+    expect(readEditablePlaceableLocalizedStringEntries([
+      { languageId: 0, text: "Chest" },
+      { languageId: 10, text: "Skrzynia" },
+    ], 256)).toEqual([
+      { languageId: 0, text: "Chest" },
+      { languageId: 10, text: "Skrzynia" },
+    ]);
+    expect(readEditablePlaceableLocalizedStringEntries([], 256)).toEqual([]);
+    expect(readEditablePlaceableLocalizedStringEntries([
+      { languageId: 0, text: "A" },
+      { languageId: 0, text: "B" },
+    ], 256)).toBeUndefined();
+    expect(readEditablePlaceableLocalizedStringEntries([
+      { languageId: 2, text: "Coffre" },
+    ], 256)).toBeUndefined();
+    expect(readEditablePlaceableLocalizedStringEntries([
+      { languageId: 0, text: "A".repeat(257) },
+    ], 256)).toBeUndefined();
   });
 
   it("rejects a non-string base64 impostor even when coercion resembles canonical base64", () => {

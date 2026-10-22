@@ -3,6 +3,12 @@
 Date: 2026-08-26  
 Status: source-closed; offline implementation verified; browser, Toolset, and NWN proof pending
 
+Superseding note (2026-09-13): the complete ordered inline printable-ASCII
+entry-list profile is implemented and governed by
+`area-existing-creature-ordered-inline-localized-string-editor-audit-v1-2026-09-13.md`.
+This audit remains the authority for the original scalar profile and native
+FirstName/LastName lineage.
+
 ## Decision
 
 Aurora Web may carry the complete exact native storage of `FirstName` and

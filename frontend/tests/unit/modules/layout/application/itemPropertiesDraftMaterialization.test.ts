@@ -233,6 +233,77 @@ describe("materializeItemPropertiesDraft", () => {
     });
   });
 
+  it("materializes complete ordered retained Item localized-string lists", () => {
+    const source = sourceItem();
+    source.source = {
+      ...source.source!,
+      itemLocalizedStrings: {
+        localizedName: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [
+            { languageId: 42, textBytesBase64: "TGVnYWN5IG5hbWU=" },
+            { languageId: 0, textBytesBase64: "UmV0YWluZWQgbG9jYWxpemVkIG5hbWU=" },
+            { languageId: 10, textBytesBase64: "UG9sc2thIG5hendh" },
+          ],
+        },
+        description: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [{ languageId: 0, textBytesBase64: "UmV0YWluZWQgZGVzY3JpcHRpb24=" }],
+        },
+        identifiedDescription: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [{ languageId: 0, textBytesBase64: "UmV0YWluZWQgaWRlbnRpZmllZCBkZXNjcmlwdGlvbg==" }],
+        },
+      },
+    };
+    source.itemProperties = {
+      ...source.itemProperties,
+      localizedNameEntries: [
+        { languageId: 42, text: "Legacy name" },
+        { languageId: 0, text: "Retained localized name" },
+        { languageId: 10, text: "Polska nazwa" },
+      ],
+      descriptionEntries: [{ languageId: 0, text: "Retained description" }],
+      identifiedDescriptionEntries: [
+        { languageId: 0, text: "Retained identified description" },
+      ],
+    };
+    const draft = buildItemPropertiesDraft(source);
+    draft.localizedName = "Draft localized name";
+    draft.localizedNameEntries = [
+      { languageId: 10, text: "Nazwa PL" },
+      { languageId: 42, text: "Legacy changed" },
+      { languageId: 0, text: "Draft localized name" },
+      { languageId: 2, text: "German name" },
+    ];
+    draft.description = "Draft description";
+    draft.descriptionEntries = [
+      { languageId: 0, text: "Draft description" },
+      { languageId: 2, text: "Beschreibung" },
+    ];
+    draft.identifiedDescription = "Draft identified description";
+    draft.identifiedDescriptionEntries = [
+      { languageId: 0, text: "Draft identified description" },
+      { languageId: 10, text: "Rozpoznany opis" },
+    ];
+
+    const result = materializeItemPropertiesDraft(source, draft);
+
+    expect(result.object.itemProperties).toMatchObject({
+      localizedName: "Draft localized name",
+      localizedNameEntries: draft.localizedNameEntries,
+      description: "Draft description",
+      descriptionEntries: draft.descriptionEntries,
+      identifiedDescription: "Draft identified description",
+      identifiedDescriptionEntries: draft.identifiedDescriptionEntries,
+    });
+    expect(result.object.itemProperties?.localizedNameEntries)
+      .not.toBe(draft.localizedNameEntries);
+  });
+
   it("materializes a complete retained PropertiesList target with exact source provenance", () => {
     const source = sourceItem();
     source.source = {

@@ -34,6 +34,9 @@ describe("sceneViewportPort", () => {
         setExistingTriggerEditorCommentById: vi.fn(() => nextScene),
         setExistingTriggerScriptResRefsById: vi.fn(() => nextScene),
         setExistingTriggerTransitionStorageById: vi.fn(() => nextScene),
+        setExistingTriggerCorePropertiesById: vi.fn(() => nextScene),
+        setExistingTriggerTrapPropertiesById: vi.fn(() => nextScene),
+        setExistingTriggerVariablesById: vi.fn(() => nextScene),
         setAreaObjectPolygonGeometryById: vi.fn(() => nextScene),
         setPlaceablePropertiesByIds: vi.fn(() => nextScene),
         setObjectsAbsoluteLocationByIds: vi.fn(() => nextScene),
@@ -104,6 +107,43 @@ describe("sceneViewportPort", () => {
         "trigger-0",
         triggerTransitionStorage,
       );
+    const triggerCoreProperties = {
+      autoRemoveKey: 1 as const,
+      factionId: 2,
+      cursorId: 3,
+      highlightHeight: Math.fround(1.5),
+      keyName: "gate_key",
+      portraitId: 4,
+      triggerType: -1,
+    };
+    const updatedTriggerCoreProperties = port.setExistingTriggerCorePropertiesById(
+      seed,
+      "trigger-0",
+      triggerCoreProperties,
+    );
+    const triggerTrapProperties = {
+      trapDetectable: 0,
+      trapDetectDc: 17,
+      trapDisarmable: 0,
+      disarmDc: 23,
+      trapFlag: 1,
+      trapOneShot: 0,
+      trapType: 7,
+    };
+    const updatedTriggerTrapProperties = port.setExistingTriggerTrapPropertiesById(
+      seed,
+      "trigger-0",
+      triggerTrapProperties,
+    );
+    const triggerVariables = [
+      { name: "Counter", type: "int" as const, value: 2 },
+      { name: "State", type: "string" as const, value: "armed" },
+    ];
+    const updatedTriggerVariables = port.setExistingTriggerVariablesById(
+      seed,
+      "trigger-0",
+      triggerVariables,
+    );
     const polygonGeometry = {
       coordinateSpace: "native_local" as const,
       points: [{ x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: 0 }, { x: 0, y: 2, z: 0 }],
@@ -199,6 +239,9 @@ describe("sceneViewportPort", () => {
     expect(updatedTriggerEditorComment).toBe(nextScene);
     expect(updatedTriggerScripts).toBe(nextScene);
     expect(updatedTriggerTransitionStorage).toBe(nextScene);
+    expect(updatedTriggerCoreProperties).toBe(nextScene);
+    expect(updatedTriggerTrapProperties).toBe(nextScene);
+    expect(updatedTriggerVariables).toBe(nextScene);
     expect(updatedPolygon).toBe(nextScene);
     expect(updatedEncounterResetTime).toBe(nextScene);
     expect(updatedPlaceableProperties).toBe(nextScene);
@@ -247,6 +290,21 @@ describe("sceneViewportPort", () => {
       seed,
       "trigger-0",
       triggerTransitionStorage,
+    );
+    expect(bundle.mutations.setExistingTriggerCorePropertiesById).toHaveBeenCalledWith(
+      seed,
+      "trigger-0",
+      triggerCoreProperties,
+    );
+    expect(bundle.mutations.setExistingTriggerTrapPropertiesById).toHaveBeenCalledWith(
+      seed,
+      "trigger-0",
+      triggerTrapProperties,
+    );
+    expect(bundle.mutations.setExistingTriggerVariablesById).toHaveBeenCalledWith(
+      seed,
+      "trigger-0",
+      triggerVariables,
     );
     expect(bundle.mutations.setAreaObjectPolygonGeometryById).toHaveBeenCalledWith(
       seed,

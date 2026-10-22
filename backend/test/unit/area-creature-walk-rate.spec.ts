@@ -45,10 +45,16 @@ describe("Existing Area Creature WalkRate mutation", () => {
         sizeBytes: 520,
         rowCount: 9,
       },
-      rows: [
-        { rowIndex: 4, displayName: "Normal", displaySource: "strref", nameStrRef: 2322, twoDaName: "NORM" },
-        { rowIndex: 7, displayName: "Default", displaySource: "strref", nameStrRef: 6614, twoDaName: "DEFAULT" },
-      ],
+      rows: Array.from({ length: 8 }, (_, index) => {
+        const rowIndex = index + 1;
+        return {
+          rowIndex,
+          displayName: rowIndex === 7 ? "Default" : `Walk rate ${rowIndex}`,
+          displaySource: "strref" as const,
+          nameStrRef: rowIndex === 7 ? 6614 : 2300 + rowIndex,
+          twoDaName: rowIndex === 7 ? "DEFAULT" : `RATE_${rowIndex}`,
+        };
+      }),
     });
     expect(bound).toEqual({
       present: true,

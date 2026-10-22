@@ -10,6 +10,7 @@ import type { AreaPlaceableVariableProvenance } from "./area-placeable-variable-
 import type { AreaCreatureVariableProvenance } from "./area-creature-variable-table";
 import type { AreaEncounterVariableProvenance } from "./area-encounter-variable-table";
 import type { AreaWaypointVariableProvenance } from "./area-waypoint-variable-table";
+import type { AreaTriggerVariableProvenance } from "./area-trigger-variable-table";
 import type { AreaEncounterCreatureListProvenance } from
   "./area-encounter-creature-single-spawn";
 import type { AreaEncounterSpawnPointListProvenance } from
@@ -68,6 +69,8 @@ import type { AreaTriggerTemplateResRefStorage } from "./area-trigger-template-r
 import type { AreaTriggerLocalizedNameStorage } from "./area-trigger-localized-name";
 import type { AreaTriggerScriptResRefsStorage } from "./area-trigger-script-resrefs";
 import type { AreaTriggerTransitionStorage } from "./area-trigger-transition-storage";
+import type { AreaTriggerCoreProperties } from "./area-trigger-core-properties";
+import type { AreaTriggerTrapProperties } from "./area-trigger-trap-properties";
 import type { AreaEncounterTagStorage } from "./area-encounter-tag";
 import type { AreaEncounterTemplateResRefStorage } from "./area-encounter-template-resref";
 import type { AreaWaypointTagStorage } from "./area-waypoint-tag";
@@ -380,6 +383,9 @@ export interface AreaObjectPlacement {
   triggerLocalizedName?: AreaTriggerLocalizedNameStorage;
   triggerScriptResRefs?: AreaTriggerScriptResRefsStorage;
   triggerTransitionStorage?: AreaTriggerTransitionStorage;
+  triggerCoreProperties?: AreaTriggerCoreProperties;
+  triggerTrapProperties?: AreaTriggerTrapProperties;
+  triggerVariables?: AreaTriggerVariableProvenance;
   triggerMetadata?: Record<string, AreaObjectItemMetadataPrimitive>;
   encounterTag?: AreaEncounterTagStorage;
   encounterTemplateResRef?: AreaEncounterTemplateResRefStorage;

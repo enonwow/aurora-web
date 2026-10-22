@@ -2196,7 +2196,7 @@ describe("WorkspaceCanvasViewport placeable texture loader cache", () => {
     expect(ddsLoader).toHaveBeenCalledTimes(1);
   });
 
-  it("applies loaded textures to renderable model materials", () => {
+  it("applies loaded textures without inventing a two-sided material policy", () => {
     const material = new THREE.MeshStandardMaterial();
     const model = new THREE.Group();
     model.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material));
@@ -2205,7 +2205,7 @@ describe("WorkspaceCanvasViewport placeable texture loader cache", () => {
     applyPlaceableTextureToModel(model, texture);
 
     expect(material.map).toBe(texture);
-    expect(material.side).toBe(THREE.DoubleSide);
+    expect(material.side).toBe(THREE.FrontSide);
     expect(material.transparent).toBe(false);
     expect(material.opacity).toBe(1);
     expect(material.alphaTest).toBe(0);

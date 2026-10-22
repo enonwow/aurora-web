@@ -1,0 +1,9 @@
+# S07 observational frame
+
+The public `aur-s07-runtime-execution.mjs capture-frame --profile <profile> --outDir <armed-run> --frameIndex <0..15>` owns exactly one call to the already qualified `capture-nwmain-proof-window-no-global-input.mjs` atom. A run must already have a matching request, process observation and verified runtime-window preparation. Current MOD/HAK/admission validation runs first. An exclusive per-index intent prevents replay or overwrite. Failed output stays failed, with its receipt; the PNG is discarded. No process launch, settings change, input, focus or alternative capture transport is added.
+
+This narrow extension responds to a reproduced physical MP4 failure: all nine ownership probes returned the obscuring Codex PID while the authorized NWN window and parent remained correctly bound on the non-primary monitor. The existing one-frame atom already implements an ownership-proved, temporary HWND_TOP lease, at most one CopyFromScreen, exact predecessor restoration in finally, identity/modal readback, and PNG deletion on any failed restore. S07 reuses that unchanged atom and validates the returned process, HWND, monitor and path. It does not introduce a video-duration lease or control the obscurer.
+
+The receipt is `captured-for-observation`, explicitly `continuousVideoProof:false`. It cannot replace the uninterrupted MP4 required by S07 packet validation, which is unchanged. Each PNG can inform VFX iteration while uninterrupted video remains blocked by an obscurer. A request for another sample is a distinct bounded observation; a failed index cannot be retried.
+
+Offline validation: two plan/negative tests, the existing public model-geometry CLI test, and the existing physical-capture lease/PowerShell parse regression pass. The negative cases cover stale module/process/window, primary monitor, unverified placement, invalid index and an existing intent. Live qualification is pending.

@@ -83,6 +83,29 @@ z-order, or geometry action and deletes a partial MP4 on any identity, modal,
 geometry, monitor, or occlusion drift. The resulting H.264 MP4 remains an
 AUR-S07 `runtime-capture` artifact rather than a new runtime route or packet.
 
+For NWN observation while another application covers its window, read
+`aur-s07-runtime-execution-standard.md`, section `Discriminated per-window
+observation`, and the capture safety contract's per-window addendum. The same
+public PNG/video entrypoints can explicitly select `--captureMethod printwindow`
+without activation or a z-order lease. Use the fresh bound process identity;
+do not manipulate the obscurer or run the historical VFX launcher. Minimized
+windows require the separately authorized no-activation restore transition.
+Check the actual MCP configuration before claiming it uses this method.
+
+Long background observation can select the canonical explicit ambient-window
+observation policy. Its discriminated receipt records sampled foreground and
+predecessor changes with an unverified cause while retaining the exact NWN
+identity, geometry, monitor and modal guards. Do not describe observed global
+UI changes as unchanged or restored, change the obscurer, or relax the strict
+physical proof contract. Select the policy only through the documented public
+entrypoint or audited operator configuration, never by deleting a guard.
+
+Per-window capture produces observation receipts. Independently review image
+identity, freshness and temporal changes; a successful call or non-uniform
+image is insufficient. The current physical AUR-S07 MP4 validator does not
+accept these receipts. Sampling cadence is not renderer FPS, and this method
+must never silently fall back to physical pixels or foreground placement.
+
 ## New module vertical slice
 
 - Standard: `aurora-toolset-vertical-slice-standard.md`

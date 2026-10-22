@@ -48,6 +48,9 @@ function renderInventoryDialog(options?: {
   exactHitPoints?: boolean;
   exactClassLevels?: boolean;
   exactClassIdentity?: boolean;
+  classSpellClearConfirmed?: boolean;
+  classSpellRemovalConfirmed?: boolean;
+  classSpellReorderConfirmed?: boolean;
   exactNaturalArmorClass?: boolean;
   exactSavingThrowBonuses?: boolean;
   exactAlignment?: boolean;
@@ -327,8 +330,16 @@ function renderInventoryDialog(options?: {
   }
   if (options?.exactCreatureNames) {
     creatureObject.creatureProperties.firstName = "  Current Guard  ";
+    creatureObject.creatureProperties.firstNameEntries = [
+      { languageId: 42, text: "Legacy target" },
+      { languageId: 0, text: "  Current Guard  " },
+      { languageId: 10, text: "Straznik" },
+    ];
     creatureObject.creatureProperties.lastName = "Resolved TLK surname";
     creatureObject.creatureProperties.description = "  Current description  ";
+    creatureObject.creatureProperties.descriptionEntries = [
+      { languageId: 0, text: "  Current description  " },
+    ];
     creatureObject.source = {
       ...(creatureObject.source ?? { type: "aurora_git" as const }),
       type: "aurora_git",
@@ -339,7 +350,11 @@ function renderInventoryDialog(options?: {
         firstName: {
           present: true,
           strRef: 0xffff_ffff,
-          entries: [{ languageId: 0, textBytesBase64: "ICBHdWFyZCAg" }],
+          entries: [
+            { languageId: 42, textBytesBase64: "TGVnYWN5" },
+            { languageId: 0, textBytesBase64: "ICBHdWFyZCAg" },
+            { languageId: 10, textBytesBase64: "U3RyYXpuaWs=" },
+          ],
         },
         lastName: { present: true, strRef: 12_416, entries: [] },
         description: {
@@ -928,6 +943,12 @@ function renderInventoryDialog(options?: {
     creatureObject.creatureProperties.classEntries = [
       { classId: 4, className: "Fighter", level: 3 },
     ];
+    creatureObject.creatureProperties.classSpellClearConfirmed =
+      options.classSpellClearConfirmed ?? false;
+    creatureObject.creatureProperties.classSpellRemovalConfirmed =
+      options.classSpellRemovalConfirmed ?? false;
+    creatureObject.creatureProperties.classSpellReorderConfirmed =
+      options.classSpellReorderConfirmed ?? false;
     creatureObject.creatureProperties.advancedSettings = {
       ...buildCreaturePropertiesDraft(creatureObject).advancedSettings,
       startingPackageId: 0,
@@ -951,6 +972,26 @@ function renderInventoryDialog(options?: {
           opaqueSiblingFieldCount: 1,
           canonicalSpellListFieldCount: 2,
           spellEntryCount: 3,
+          spellLists: [
+            {
+              listKind: "memorized",
+              spellLevel: 0,
+              entries: [
+                { spellId: 11, spellMetaMagic: 0, spellFlags: 1,
+                  opaqueSiblingFieldCount: 0 },
+                { spellId: 12, spellMetaMagic: 2, spellFlags: 1,
+                  opaqueSiblingFieldCount: 1 },
+              ],
+            },
+            {
+              listKind: "memorized",
+              spellLevel: 1,
+              entries: [
+                { spellId: 22, spellMetaMagic: 0, spellFlags: 1,
+                  opaqueSiblingFieldCount: 0 },
+              ],
+            },
+          ],
         }],
         classesTable: {
           resourceName: "classes.2da",
@@ -2097,6 +2138,100 @@ describe("CreaturePropertiesDialog", () => {
     expect(handlers.updateCreatureClassEntry).toHaveBeenCalledWith(0, "level", 4);
   });
 
+  it("exposes the bounded retained class spell-list clear only with exact source provenance", () => {
+    const handlers = renderInventoryDialog({ activeTab: "spells", exactClassIdentity: true });
+
+    expect(screen.getByText("Class spell-list clear: ACTIVE_NOW")).toBeInTheDocument();
+    const confirmation = screen.getByRole("checkbox", {
+      name: "Confirm class spell list clear",
+    });
+    expect(confirmation).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Clear Class Spell List" })).toBeDisabled();
+
+    fireEvent.click(confirmation);
+    expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
+      "classSpellClearConfirmed",
+      true,
+    );
+  });
+
+  it("stages a confirmed clear for the selected spell-owning class slot", () => {
+    const handlers = renderInventoryDialog({
+      activeTab: "spells",
+      exactClassIdentity: true,
+      classSpellClearConfirmed: true,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear Class Spell List" }));
+
+    expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
+      "classSpellClearSlotIndices",
+      [0],
+    );
+  });
+
+  it("stages and can undo one exact retained spell-entry removal", () => {
+    const handlers = renderInventoryDialog({
+      activeTab: "spells",
+      exactClassIdentity: true,
+      classSpellRemovalConfirmed: true,
+    });
+
+    expect(screen.getByText("Exact spell-entry removal: ACTIVE_NOW")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove Entry" })[0]!);
+    expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
+      "classSpellRemovalTargets",
+      [{ classSlotIndex: 0, listKind: "memorized", spellLevel: 0, entryIndex: 0 }],
+    );
+  });
+
+  it("stages an exact same-list spell-entry reorder", () => {
+    const handlers = renderInventoryDialog({
+      activeTab: "spells",
+      exactClassIdentity: true,
+      classSpellReorderConfirmed: true,
+    });
+
+    expect(screen.getByText("Exact spell-entry order: ACTIVE_NOW")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {
+      name: "Move spell 11 down in memorized L0",
+    }));
+    expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
+      "classSpellReorders",
+      [{
+        classSlotIndex: 0,
+        listKind: "memorized",
+        spellLevel: 0,
+        entryOrder: [1, 0],
+      }],
+    );
+  });
+
+  it("keeps exact spell-entry reorder preserve-only without bounded provenance", () => {
+    renderInventoryDialog({ activeTab: "spells" });
+
+    expect(screen.getByText("Exact spell-entry order: PRESERVE_ONLY")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Confirm class spell entry reorder" }))
+      .toBeDisabled();
+  });
+
+  it("keeps exact spell-entry removal preserve-only without bounded provenance", () => {
+    renderInventoryDialog({ activeTab: "spells" });
+
+    expect(screen.getByText("Exact spell-entry removal: PRESERVE_ONLY")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Confirm class spell entry removal" }))
+      .toBeDisabled();
+  });
+
+  it("keeps class spell-list clear preserve-only without exact source provenance", () => {
+    renderInventoryDialog({ activeTab: "spells" });
+
+    expect(screen.getByText("Class spell-list clear: PRESERVE_ONLY")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Confirm class spell list clear" }))
+      .toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear Class Spell List" })).toBeDisabled();
+  });
+
   it("admits only a tail append and prevents truncating the last retained class slot", () => {
     const handlers = renderInventoryDialog({ activeTab: "classes", exactClassIdentity: true });
 
@@ -2195,8 +2330,8 @@ describe("CreaturePropertiesDialog", () => {
 
   it("edits each Creature name only when that exact localized-string member is admitted", () => {
     const handlers = renderInventoryDialog({ activeTab: "basic", exactCreatureNames: true });
-    const firstName = screen.getByRole("textbox", { name: /first name/i });
-    const lastName = screen.getByRole("textbox", { name: /last name/i });
+    const firstName = screen.getByRole("textbox", { name: /^first name$/i });
+    const lastName = screen.getByRole("textbox", { name: /^last name$/i });
     const description = screen.getByRole("textbox", { name: /^description$/i });
 
     expect(screen.getByText("FirstName: ACTIVE_NOW")).toBeInTheDocument();
@@ -2220,6 +2355,73 @@ describe("CreaturePropertiesDialog", () => {
     expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
       "description",
       "  New description  ",
+    );
+  });
+
+  it("edits, reorders, catalog-adds, and removes complete Creature localized-string lists", () => {
+    const handlers = renderInventoryDialog({ activeTab: "basic", exactCreatureNames: true });
+    const firstEntries = screen.getByRole("group", {
+      name: "Creature First Name localized entries",
+    });
+    expect(within(firstEntries).getByRole("textbox", {
+      name: "Creature First Name entry 42",
+    })).toHaveValue("Legacy target");
+
+    fireEvent.change(within(firstEntries).getByRole("textbox", {
+      name: "Creature First Name entry 42",
+    }), { target: { value: "Legacy edited" } });
+    expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
+      "firstNameEntries",
+      [
+        { languageId: 42, text: "Legacy edited" },
+        { languageId: 0, text: "  Current Guard  " },
+        { languageId: 10, text: "Straznik" },
+      ],
+    );
+
+    fireEvent.click(within(firstEntries).getByRole("button", {
+      name: "Move Creature First Name entry 0 up",
+    }));
+    expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
+      "firstNameEntries",
+      [
+        { languageId: 0, text: "  Current Guard  " },
+        { languageId: 42, text: "Legacy target" },
+        { languageId: 10, text: "Straznik" },
+      ],
+    );
+
+    const addFirstEntry = screen.getByRole("group", {
+      name: "Add Creature First Name localized entry",
+    });
+    fireEvent.change(within(addFirstEntry).getByRole("combobox", {
+      name: "Creature First Name entry to add",
+    }), { target: { value: "2" } });
+    fireEvent.change(within(addFirstEntry).getByRole("textbox", {
+      name: "New Creature First Name entry text",
+    }), { target: { value: "Garde" } });
+    fireEvent.click(within(addFirstEntry).getByRole("button", {
+      name: "Add Creature First Name entry",
+    }));
+    expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
+      "firstNameEntries",
+      [
+        { languageId: 42, text: "Legacy target" },
+        { languageId: 0, text: "  Current Guard  " },
+        { languageId: 10, text: "Straznik" },
+        { languageId: 2, text: "Garde" },
+      ],
+    );
+
+    const descriptionEntries = screen.getByRole("group", {
+      name: "Creature Description localized entries",
+    });
+    fireEvent.click(within(descriptionEntries).getByRole("button", {
+      name: "Remove Creature Description entry 0",
+    }));
+    expect(handlers.updateCreaturePropertiesDraftField).toHaveBeenCalledWith(
+      "descriptionEntries",
+      [],
     );
   });
 

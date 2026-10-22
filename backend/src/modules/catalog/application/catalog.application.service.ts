@@ -2377,6 +2377,59 @@ export class CatalogApplicationService {
     };
   }
 
+  async listCreatureClassSpellRows(input: {
+    tableSha256: string;
+    classesTableSha256: string;
+    classId: number;
+    spellLevel: number;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreatureClassSpellsTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_CLASS_SPELLS_TABLE_NOT_FOUND",
+        message: "The authoritative Creature class-spell catalogs are unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256 ||
+      table.classesDescriptor.sha256 !== input.classesTableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_CLASS_SPELLS_TABLE_STALE",
+        message: "The requested classes.2da or spells.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) => row.classId === input.classId &&
+      row.spellLevel === input.spellLevel && row.displaySource === "strref" &&
+      (input.rowIndex !== undefined
+        ? row.rowIndex === input.rowIndex
+        : [row.displayName, String(row.rowIndex), String(row.nameStrRef)]
+            .some((value) => value.toLowerCase().includes(query))));
+    return {
+      resourceName: "spells.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      classesSha256: table.classesDescriptor.sha256,
+      classesRowCount: table.classesDescriptor.rowCount,
+      classId: input.classId,
+      spellLevel: input.spellLevel,
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({
+        rowIndex: row.rowIndex,
+        nameStrRef: row.nameStrRef,
+        ...(row.spellDescStrRef === undefined ? {} : { spellDescStrRef: row.spellDescStrRef }),
+        displayName: row.displayName,
+      })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
   async listCreaturePhenotypeRows(input: {
     tableSha256: string;
     appearanceTableSha256: string;

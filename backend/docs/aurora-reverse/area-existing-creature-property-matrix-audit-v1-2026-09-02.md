@@ -3,8 +3,8 @@
 Date: 2026-09-02  
 Status: native control/storage matrix classified; admitted retained-instance
 profiles are implemented and offline-verified; coupled race/CR, arbitrary
-class-spell, localized-string, dynamic-construction, and live proof gates remain
-open
+spell-value construction, TLK/codepage localized-string, dynamic-construction,
+and live proof gates remain open
 
 ## Decision
 
@@ -21,8 +21,8 @@ with the exact remaining implementation gates:
 
 1. `creature_race_cr_derived_calculators_pending`;
 2. `creature_dynamic_template_construction_pending`;
-3. `creature_full_localized_string_editor_pending`;
-4. `creature_class_arbitrary_spell_graph_mutation_incomplete`.
+3. `creature_tlk_codepage_and_unresolved_language_entry_authoring_pending`;
+4. `creature_class_spell_add_replacement_value_mutation_incomplete`.
 
 The existing browser, Toolset Save/Build/reopen, packed-readback, renderer, and
 NWN runtime blockers remain unchanged.
@@ -91,7 +91,7 @@ it is not a missing checkbox mutation.
 | Package | `StartingPackage : Byte` | Implemented against the effective packages catalog and retained class context |
 | Skills | `SkillList : List` | Implemented as complete exact ordinal-vector CAS |
 | Feats | `FeatList : List` | Implemented as a complete table-bound ordered profile |
-| Spells | per-class known/memorized spell lists inside `ClassList` | Arbitrary graph authoring remains blocked; only the proven clear-on-class-change behavior is implemented |
+| Spells | per-class known/memorized spell lists inside `ClassList` | Exact source-bound entry removal, confirmed complete-list clear, and exact same-list entry reorder are implemented; arbitrary addition, replacement, cross-list movement, and value mutation remain blocked |
 | Special Abilities | `SpecAbilityList : List` | Implemented for canonical exact entries with effective `spells.2da` provenance; opaque/noncanonical sources remain preserved |
 | Scripts | thirteen canonical `Script* : ResRef` members | Implemented independently and presence-sensitively |
 | Blueprint ResRef | `TemplateResRef : ResRef` | Implemented for exact retained storage; it does not change the underlying UTC catalog identity |
@@ -143,9 +143,10 @@ branches. The current fixed profile cannot be relabelled as dynamic support.
 3. Implement arbitrary effective UTC construction with bounded dependency
    closure and generic, source-derived conversion rather than concrete-template
    behavior keys.
-4. Implement the complete shared localized-string editor semantics.
-5. Implement arbitrary known/memorized class spell graphs and their table-
-   bound validation.
+4. Implement TLK transitions, codepage-aware non-ASCII text, and unresolved
+   new language-entry authoring beyond the complete ordered inline-ASCII editor.
+5. Implement arbitrary known/memorized spell addition, replacement, cross-list
+   movement, and value mutation with complete table-bound validation.
 6. Finish the separately catalogued arbitrary inventory/equipment matrix.
 
 Fresh browser Save/reopen, exact-candidate Toolset Save/Build/reopen and packed
@@ -160,6 +161,6 @@ The construction, inventory, equipment, parser, projector, planner, writer,
 candidate-compiler, atomic-publication, frontend provenance/dialog, clone,
 workspace, and regression suites remain the implementation evidence surface.
 
-Capability revision `2026-09-02.171` records only the improved blocker
-classification and this consolidated proof reference. It does not change an
-API, native payload, persisted source, implementation total, or release total.
+Capability revision `2026-09-13.187` records the current exact spell clear,
+removal, and same-list reorder profiles plus their focused evidence. It does
+not promote arbitrary spell authoring or change the 81-row catalog totals.

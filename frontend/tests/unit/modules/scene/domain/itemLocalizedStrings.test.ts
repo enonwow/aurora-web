@@ -3,7 +3,9 @@ import {
   MAX_ITEM_DESCRIPTION_ASCII_BYTES,
   MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES,
   MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES,
+  cloneEditableItemLocalizedStringEntries,
   cloneItemLocalizedStrings,
+  readEditableItemLocalizedStringStorage,
   isItemLocalizedStringInlineAsciiText,
   readItemLocalizedStringInlineAsciiStorage,
   readItemLocalizedStrings,
@@ -59,6 +61,29 @@ describe("Item localized-string exact storage provenance", () => {
     }, MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES)).toBeUndefined();
     expect(isItemLocalizedStringInlineAsciiText(" exact target ", 256)).toBe(true);
     expect(isItemLocalizedStringInlineAsciiText("Żółć", 256)).toBe(false);
+  });
+
+  it("decodes a complete ordered inline-ASCII list without discarding source identifiers", () => {
+    const storage = readEditableItemLocalizedStringStorage({
+      present: true,
+      strRef: 0xffff_ffff,
+      entries: [
+        { languageId: 42, textBytesBase64: "TGVnYWN5" },
+        { languageId: 0, textBytesBase64: "U3dvcmQ=" },
+        { languageId: 10, textBytesBase64: "TWllY3o=" },
+      ],
+    }, MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES);
+
+    expect(storage).toEqual({
+      value: "Sword",
+      profile: "multi_entry_inline_ascii",
+      entries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Sword" },
+        { languageId: 10, text: "Miecz" },
+      ],
+    });
+    expect(cloneEditableItemLocalizedStringEntries(storage!.entries)).not.toBe(storage!.entries);
   });
 
   it("rejects malformed or incomplete triples without inventing provenance", () => {

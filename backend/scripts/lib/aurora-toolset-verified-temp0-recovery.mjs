@@ -6,13 +6,46 @@ import { parseErfArchive } from "./aurora-model-proof-120s-erf-gff-readback.mjs"
 const CACHE_VERSION = "aurora-toolset-exact-temp0-cache/v1";
 const ADMISSION_VERSION = "aurora-toolset-verified-temp0-recovery-admission/v1";
 const RESOURCE_EXTENSIONS = new Map([
+  [0, "res"],
+  [3, "tga"],
+  [4, "wav"],
+  [6, "plt"],
+  [2002, "mdl"],
+  [2009, "nss"],
+  [2010, "ncs"],
   [2012, "are"],
+  [2013, "set"],
   [2014, "ifo"],
+  [2015, "bic"],
+  [2016, "wok"],
+  [2017, "2da"],
+  [2022, "txi"],
   [2023, "git"],
+  [2025, "uti"],
   [2027, "utc"],
+  [2029, "dlg"],
+  [2030, "itp"],
+  [2032, "utt"],
+  [2033, "dds"],
+  [2035, "uts"],
+  [2036, "ltr"],
+  [2037, "gff"],
   [2038, "fac"],
+  [2040, "ute"],
+  [2042, "utd"],
+  [2044, "utp"],
+  [2045, "dft"],
   [2046, "gic"],
+  [2047, "gui"],
+  [2051, "utm"],
+  [2058, "utw"],
+  [2060, "ssf"],
+  [2064, "ndb"],
 ]);
+
+export function resourceExtensionForType(type) {
+  return Number.isInteger(type) ? (RESOURCE_EXTENSIONS.get(type) ?? null) : null;
+}
 
 export function inspectExactTemp0Cache({ modulePath, temp0Path }) {
   const moduleFile = exactRegularFile(modulePath, "VERIFIED_TEMP0_MODULE");
@@ -27,7 +60,7 @@ export function inspectExactTemp0Cache({ modulePath, temp0Path }) {
   const moduleBytes = readFileSync(moduleFile);
   const archive = parseErfArchive(moduleBytes, "MOD ");
   const expected = archive.resources.map((resource) => {
-    const extension = RESOURCE_EXTENSIONS.get(resource.type);
+    const extension = resourceExtensionForType(resource.type);
     if (!extension) fail("VERIFIED_TEMP0_RESOURCE_TYPE_UNSUPPORTED", `${resource.resref}:${resource.type}`);
     return {
       name: `${resource.resref}.${extension}`.toLowerCase(),

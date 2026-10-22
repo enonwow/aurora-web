@@ -138,10 +138,14 @@ Implemented now:
 3. Tag is ordinal-bound, Appearance is an effective-`placeables.2da`
    physical-row selector, and neither aliases the template ResRef.
 4. Name/LocName and localized Description carry complete exact CExoLocString
-   storage provenance. Their bounded inline language-0 printable-ASCII profile
-   is independently editable and offline-verified; every other localized
-   storage shape remains visibly `PRESERVE_ONLY`. Unresolved trap extensions
-   and remaining Advanced identity fields are also `PRESERVE_ONLY`.
+   storage provenance. Their bounded ordered inline printable-ASCII profiles
+   (`0..64` unique numeric identifiers with identifier `0` required whenever
+   nonempty) are independently editable and offline-verified. Existing unknown
+   identifiers can be preserved, edited, moved, or removed; new identifiers
+   are restricted to the frozen Western-language catalog. TLK-backed,
+   non-ASCII, duplicate, and nonzero-only storage remains visibly
+   `PRESERVE_ONLY`. Unresolved trap extensions and remaining Advanced identity
+   fields are also `PRESERVE_ONLY`.
 5. The exact per-control matrix and native persistence boundary are maintained
    in `frontend/AURORA_PLACEABLE_PROPERTIES_PARITY.md`.
 6. Existing retained Placeable `Faction : DWord` is bound to one exact
@@ -228,6 +232,15 @@ Implemented now:
     truncation. Atomic publication changes only the paired GIC Comment while
     preserving GIT and IFO bytes; the full Apply/Cancel/OK/reopen/local-Save
     regression is verified offline.
+18. Existing retained Placeable `LocName` and `Description` expose their
+    complete ordered inline printable-ASCII entry lists. Full-list CAS covers
+    source profile, scalar identifier-`0` value, every numeric identifier,
+    text, and order. The visible editor supports add/edit/remove/reorder,
+    synchronizes identifier `0` with the scalar control, preserves source-only
+    unknown identifiers, and permits the exact empty target while rejecting
+    alternate-only lists. Candidate compilation and atomic publication verify
+    exact ordered GFF readback with GIC/IFO identity; Apply/reopen/local-Save is
+    covered by a full Workspace regression.
 
 Evidence in repo:
 1. `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
@@ -298,12 +311,17 @@ Evidence in repo:
 66. `backend/test/integration/area-update-atomic-publication.spec.ts`
 67. `frontend/src/modules/layout/application/placeableEditorCommentProvenance.ts`
 68. `frontend/tests/regression-smoke/workspace/Workspace.placeable-editor-comment.regression-smoke.test.tsx`
+69. `backend/docs/aurora-reverse/area-existing-placeable-ordered-inline-localized-string-editor-audit-v1-2026-09-13.md`
+70. `backend/src/modules/areas/domain/area-placeable-localized-string-mutation.ts`
+71. `frontend/src/modules/scene/domain/placeableLocalizedStrings.ts`
+72. `frontend/src/modules/layout/application/placeableLocalizedStringProvenance.ts`
+73. `frontend/tests/regression-smoke/workspace/Workspace.placeable-ordered-localized-strings.regression-smoke.test.tsx`
 
 Coding backlog (now):
-1. Bounded inline language-0 printable-ASCII Name and Description projection,
-   writer, readback, UI, and 100% mutation gates are complete. Full
-   multilingual/TLK-backed authoring remains preserve-only until its larger
-   native editor contract is source-closed.
+1. Bounded complete ordered inline printable-ASCII Name and Description
+   projection, writer, exact readback, UI, and persistence gates are complete.
+   TLK transitions, arbitrary native code-page authoring, and synthesis of the
+   four unresolved localized-editor rows remain preserve-only.
 2. Keep every unresolved field preserve-only until its exact native contract
    is recovered and covered by projection, planning, writer readback, UI, and
    mutation gates.
@@ -668,14 +686,19 @@ Implemented now:
    mutation authority or trigger writer-side normalization.
 9. Existing retained ground-item `LocalizedName`, `Description`, and
    `DescIdentified : CExoLocString` are preserved as one complete exact GIT
-   provenance triple and admitted independently for bounded inline language-0
-   printable-ASCII mutation. The name budget is 256 bytes and each description
-   budget is 4,096 bytes. Selected fields use exact expected/value CAS in native
-   writer order; unsupported TLK-backed, multilingual, absent, malformed,
-   duplicated, non-ASCII, or stale members remain independently
-   `PRESERVE_ONLY`. The writer changes only selected existing type-`12` fields,
-   preserves unrelated GIT fields and paired GIC bytes, and the frontend keeps
-   immutable source storage through Apply, Cancel, reopen, OK, and local Save.
+   provenance triple and admitted independently for bounded complete ordered
+   inline printable-ASCII mutation. Each list supports edit, removal, reorder,
+   and catalog-only addition while retaining editable unknown source IDs and
+   scalar identifier-`0` coherence. The name default budget is 256 bytes, each
+   description default budget is 4,096 bytes, each entry is bounded to 16,384
+   bytes, and aggregate text is bounded to 65,536 bytes. Selected fields use
+   exact profile/value/list CAS in native writer order. Unsupported TLK-backed,
+   duplicate, non-ASCII, nonzero-only, malformed, over-budget, or stale members
+   remain independently `PRESERVE_ONLY`. The writer replaces only selected
+   existing type-`12` fields, preserves requested order, unrelated GIT fields,
+   paired GIC, and IFO bytes, and whole-candidate plus transactional readback is
+   verified. The frontend keeps immutable source storage through full visible
+   controls, Apply, Cancel, reopen, OK, and local Save.
 10. Existing retained ground-item `VarTable` is implemented as one exact,
     ordered, duplicate-name-preserving GIT list for native Int, Float, and
     CExoString entries. Immutable ordinal-bearing provenance gates the native
@@ -736,9 +759,9 @@ Implemented now:
 Not implemented yet:
 1. Fully arbitrary UTI authoring across every native root field and Toolset
    control remains incomplete.
-2. Non-inline/multilingual localized strings and animated,
-   multi-scope, or legacy visual-transform authoring outside the admitted
-   exact profiles.
+2. TLK transitions, arbitrary code-page localized strings, unresolved new
+   language rows, and animated, multi-scope, or legacy visual-transform
+   authoring outside the admitted exact profiles.
 3. Native Item event-script authoring is not established; compatibility
    script metadata stays preserve-only and is not presented as Aurora parity.
 4. Fresh exact-candidate Toolset Save/Build/reopen and NWN certification.
@@ -801,6 +824,8 @@ Evidence in repo:
 55. `frontend/tests/unit/modules/layout/WorkspaceCanvasViewport.itemInventoryDynamicAdd.test.ts`
 56. `frontend/tests/unit/modules/scene/localDraftStore.test.ts`
 57. `frontend/tests/regression-smoke/workspace/Workspace.item-inventory.regression-smoke.test.tsx`
+58. `backend/docs/aurora-reverse/area-existing-item-ordered-inline-localized-string-editor-audit-v1-2026-09-13.md`
+59. `frontend/tests/regression-smoke/workspace/Workspace.item-ordered-localized-strings.regression-smoke.test.tsx`
 
 ---
 
@@ -844,18 +869,20 @@ Implemented now:
    duplicated, wrong-case, wrongly typed, stale, or malformed storage stays
    visibly `PRESERVE_ONLY`. `Tag`, `ItemList`, and `Equip_ItemList` may be
    committed together through one GIT mutation while GIC remains byte-identical.
-10. Existing retained Creature `FirstName` and `LastName` exact
-    `CExoLocString` storage is carried independently from the Area parser to
-    the workspace and back into the transactional GIT writer. A member is
-    `ACTIVE_NOW` only when its immutable source is inline `languageId=0`,
-    printable ASCII, at most 256 bytes, and has no ambiguous extra entry;
-    empty inline storage is also admitted. Surrounding spaces and an empty
-    surname are written verbatim. TLK-backed, multilingual, nonzero-language,
-    duplicated, non-ASCII, missing, malformed, or stale storage remains
-    independently `PRESERVE_ONLY`. The writer applies `FirstName` before
-    `LastName`, supports the same atomic mutation as `Tag`, `ItemList`, and
-    `Equip_ItemList`, keeps GIC byte-identical, and verifies the complete
-    candidate before publication.
+10. Existing retained Creature `FirstName`, `LastName`, and `Description`
+    exact `CExoLocString` storage is carried independently from the Area
+    parser to the workspace and back into the transactional GIT writer. For a
+    complete ordered inline printable-ASCII source, the UI edits, adds,
+    removes, and reorders the full list while preserving retained unresolved
+    identifiers. New identifiers are limited to the frozen language catalog;
+    duplicate or alternate-only lists, empty new rows, non-ASCII, malformed,
+    oversized, stale, or source-less targets fail closed. The scalar value is
+    always coherent with identifier `0`, or empty for an empty list. TLK-
+    backed and unsupported codepage storage remains independently
+    `PRESERVE_ONLY`. The writer applies `FirstName`, `LastName`, then
+    `Description`, keeps exact source/list CAS and requested order, composes
+    with other admitted Creature mutations, keeps GIC/IFO byte-identical, and
+    verifies complete candidate and persisted readback before publication.
 11. Existing retained Creature `Conversation : ResRef` replacement is
     implemented for one exact presence-sensitive native field. Empty is a
     valid present source and target; uppercase legacy source bytes remain
@@ -1048,8 +1075,9 @@ Implemented now:
     atomic publication, and byte-identical GIC/IFO are verified offline.
     Browser, Toolset Save/Build/reopen, and NWN runtime certification remain
     open.
-28. Existing retained Creature class identity is implemented offline through
-    two disjoint exact profiles. The same-roster profile permits a combined
+28. Existing retained Creature class identity and bounded spell editing are
+    implemented offline through five disjoint exact profiles.
+    The same-roster profile permits a combined
     `Class : Int` plus `ClassLevel : Short` change, clears canonical
     `KnownList0..13` and `MemorizedList0..13` only for changed class IDs, and
     atomically derives the coupled HP triplet. The slot-count profile follows
@@ -1058,20 +1086,44 @@ Implemented now:
     retained prefix slot keeps its class ID, level, ordered spell graph, and
     opaque siblings; appended type-`2` structs contain canonical `Class : Int`
     and `ClassLevel : Short` only; truncation requires an explicit destructive
-    removal confirmation. Both profiles require unique admitted physical rows
-    of one exact effective `classes.2da`, an admitted target
-    `StartingPackage : Byte` from the same effective `packages.2da`, an exact
-    canonical graph fingerprint, and complete class-level/racial/HP
-    provenance. HTTP, scene, workspace/history, catalog facades, guarded
-    materialization, compiler admission, raw-GIT replanning, typed writing,
+    removal confirmation. The unchanged-roster clear profile accepts a
+    strictly increasing set of one to eight zero-based source slots, requires
+    explicit destructive confirmation and at least one canonical source spell-
+    list field per selected slot, and removes only
+    `KnownList0..13`/`MemorizedList0..13` from those slots. It cannot compose
+    with class ID, level, or slot-count changes and preserves all class fields,
+    opaque siblings, non-selected spell graphs, and unrelated resources. The
+    exact entry-removal profile additionally publishes a complete bounded
+    source graph of at most 256 physical spell structs and accepts one to 256
+    strictly ordered paths into that graph. It requires separate destructive
+    confirmation, preserves each surviving struct byte-for-byte, and removes a
+    numbered list field only when its final entry is selected. The same-list
+    reorder profile accepts one to 224 canonical list records carrying at most
+    256 source indices. Every record is a complete non-identity permutation of
+    one exact `KnownList0..13` or `MemorizedList0..13`, preserves every source
+    struct and opaque sibling, requires explicit confirmation, and cannot move
+    an entry across lists. None of the three exact spell profiles composes with
+    another profile or synthesizes spell data. The class-identity and slot-
+    resize profiles additionally require unique admitted physical rows of one
+    exact effective `classes.2da`, an admitted
+    target `StartingPackage : Byte` from the same effective `packages.2da`, and
+    complete class-level/racial/HP provenance. The clear, exact-removal, and
+    exact-reorder profiles instead retain the unchanged source roster and exact
+    canonical graph fingerprint. HTTP, scene, workspace/history, catalog
+    facades, guarded materialization, compiler admission, raw-GIT replanning, typed writing,
     candidate readback, and transactional ARE/GIT/GIC/IFO publication are
-    implemented. Bounded verification passes `46/46` focused backend,
-    `64/64` Area Update integration, `635/635` focused frontend, the complete
-    `21/21` Creature Properties regression, `13/13` capability-catalog
-    assertions, and both production builds. Middle
-    insertion/deletion, reorder, simultaneous resize plus retained-prefix
-    mutation, arbitrary known/memorized spell authoring, guarded browser
-    readback, Toolset Save/Build/reopen, and NWN behavior proof remain open.
+    implemented. Current complete-checkout verification passes `516/516`
+    backend unit suites with `8,522/8,522` assertions, `93/93` Area Update
+    integration assertions, `10/10` backend e2e suites with `113/113`
+    assertions, `593/593` frontend unit files with `6,080/6,080` assertions,
+    `49/49` regression-smoke files with `143/143` assertions,
+    `14/14` capability-catalog assertions, and both production builds. Middle
+    class-slot insertion/deletion/reorder, simultaneous resize plus retained-
+    prefix mutation, arbitrary known/memorized spell addition, replacement,
+    cross-list movement, or value mutation beyond exact source deletion,
+    complete-list clearing, and same-list exact reorder remain open. Guarded
+    browser readback, Toolset Save/Build/reopen, and NWN behavior proof also
+    remain open.
 29. Existing retained Creature `Color_Skin`, `Color_Hair`, `Color_Tattoo1`,
     and `Color_Tattoo2` `Byte` fields are implemented as four independently
     presence-sensitive CAS members. Strict HTTP/workspace/history storage,
@@ -1163,8 +1215,9 @@ Implemented now:
 
 Not implemented yet:
 1. Arbitrary creature-template Create.
-2. Remaining Creature identity beyond exact `Tag`, bounded retained
-   `FirstName`/`LastName`, exact retained `Conversation`, admitted
+2. Remaining Creature identity beyond exact `Tag`, complete ordered retained
+   inline-ASCII `FirstName`/`LastName`/`Description`, exact retained
+   `Conversation`, admitted
    `Appearance_Type`, catalog-bound `Gender`, `PortraitId`, and `FactionID`, and
    canonical `TemplateResRef`, `Subrace`, `Deity`, and exact present script
    ResRefs; statistics other than exact retained `ChallengeRating`, exact
@@ -1175,7 +1228,9 @@ Not implemented yet:
    modifiers beyond the implemented HP calculation, derived armor totals,
    base/ability/total save calculations), class-slot reorder
    or middle insertion/deletion, simultaneous resize plus retained-prefix
-   mutation, arbitrary known/memorized spell authoring,
+   mutation, arbitrary known/memorized spell addition, replacement, cross-list
+   movement, or value mutation beyond the implemented exact source deletion,
+   confirmed complete-list clear, and exact same-list reorder,
    creation/removal of absent native script or base-score fields,
    script-source compilation,
    arbitrary inventory blueprints, nested item property authoring, random
@@ -1298,6 +1353,20 @@ Evidence in repo:
 108. `frontend/src/modules/scene/domain/creatureAppendages.ts`
 109. `frontend/src/modules/layout/application/creatureAppendageProvenance.ts`
 110. `frontend/src/modules/creatures/application/creatureAppendageCatalogFacade.ts`
+111. `backend/docs/aurora-reverse/area-existing-creature-ordered-inline-localized-string-editor-audit-v1-2026-09-13.md`
+112. `frontend/tests/regression-smoke/workspace/Workspace.creature-ordered-localized-strings.regression-smoke.test.tsx`
+113. `backend/docs/aurora-reverse/area-existing-creature-class-spell-list-clear-audit-v1-2026-09-13.md`
+114. `backend/src/modules/areas/domain/area-creature-class-spell-clear.ts`
+115. `frontend/src/modules/layout/application/creatureClassSpellClearProvenance.ts`
+116. `frontend/tests/unit/modules/layout/application/creatureClassSpellClearProvenance.test.ts`
+117. `backend/docs/aurora-reverse/area-existing-creature-class-spell-entry-removal-audit-v1-2026-09-13.md`
+118. `backend/src/modules/areas/domain/area-creature-class-spell-removal.ts`
+119. `frontend/src/modules/layout/application/creatureClassSpellRemovalProvenance.ts`
+120. `frontend/tests/unit/modules/layout/application/creatureClassSpellRemovalProvenance.test.ts`
+121. `backend/docs/aurora-reverse/area-existing-creature-class-spell-entry-reorder-audit-v1-2026-09-13.md`
+122. `backend/src/modules/areas/domain/area-creature-class-spell-reorder.ts`
+123. `frontend/src/modules/layout/application/creatureClassSpellReorderProvenance.ts`
+124. `frontend/tests/unit/modules/layout/application/creatureClassSpellReorderProvenance.test.ts`
 
 ---
 
@@ -1390,8 +1459,9 @@ Evidence in repo:
 ## 10) Triggers
 
 Status: `PARTIAL` (exact bounded Create + existing position, polygon, Tag,
-TemplateResRef, inline LocalizedName, paired-GIC editor Comment, and complete
-event-script ResRef tuple update)
+TemplateResRef, inline LocalizedName, paired-GIC editor Comment, complete
+event-script ResRefs, ordered VarTable, and raw transition/core/trap storage
+updates)
 
 Implemented now:
 1. New `triggers` drafts carry the exact binary-free provenance for the
@@ -1464,12 +1534,45 @@ Implemented now:
     CAS, whole-candidate/persisted readback, and atomic ARE/GIT/GIC/IFO
     publication are verified offline. Script existence, compilation, dispatch,
     cadence, ordering, trap behavior, and activation remain separate gates.
+13. Retained type-`1` Trigger transition storage exposes one all-or-nothing raw
+    tuple for exact `LinkedTo : CExoString`, `LinkedToFlags : Byte`, and
+    `LoadScreenID : Word` members. Strict parsing, detached source and target
+    state, workspace/history/local-Save persistence, visible
+    `ACTIVE_NOW`/`PRESERVE_ONLY` controls, immutable-ordinal CAS planning,
+    in-place three-field writing, complete candidate/persisted readback,
+    content-free telemetry, and revision-fenced publication are offline
+    verified. The implementation preserves the values as raw storage: it does
+    not infer a destination kind, validate a target, decode `LinkedToFlags`,
+    resolve a loading-screen row, or claim NWN traversal behavior.
+14. Retained type-`1` Trigger core storage exposes the exact all-or-nothing
+    `AutoRemoveKey : Byte`, `Faction : DWord`, `Cursor : Byte`,
+    `HighlightHeight : Float`, `KeyName : CExoString`, `PortraitId : Word`,
+    and `Type : Int` tuple. HTTP/workspace/history/local-Save boundaries keep a
+    detached immutable source and editable target; the dialog edits the raw
+    values only for canonical provenance. Exact ordinal CAS, in-place writing,
+    whole-candidate/persisted readback, telemetry, and atomic publication are
+    offline verified without assigning meanings to the numeric identifiers.
+15. Retained type-`1` Trigger `VarTable` is implemented as an exact ordered,
+    duplicate-name-preserving list for the shared bounded native Int, Float,
+    and CExoString profile. Add, edit, remove, reorder, empty-list removal,
+    immutable source provenance, local Save, ordinal CAS, candidate readback,
+    and atomic publication are offline verified.
+16. Retained type-`1` Trigger trap storage exposes the exact all-or-nothing
+    Byte tuple `TrapDetectable`, `TrapDetectDC`, `TrapDisarmable`, `DisarmDC`,
+    `TrapFlag`, `TrapOneShot`, and `TrapType`. All seven values remain raw
+    `0..255` storage; the implementation does not collapse them to booleans or
+    infer DC, flag, type, activation, or runtime behavior. Strict parsing,
+    detached provenance, visible controls, Apply/Cancel/reopen/OK/local Save,
+    exact ordinal CAS, in-place writing, candidate/persisted readback,
+    content-free telemetry, and atomic publication are offline verified.
 
 Not implemented yet:
 1. Arbitrary trigger-template Create.
-2. Rotation, remaining properties, links, variables, and runtime activation
-   authoring.
-3. Fresh exact-candidate Toolset Save/Build/reopen and NWN certification.
+2. Rotation and remaining Trigger fields outside the implemented bounded
+   identity, script, transition, core, trap, variable, and polygon families.
+3. Interpreted native meaning and target-validity proof for the raw transition
+   and trap tuples, runtime activation authoring, fresh exact-candidate Toolset
+   Save/Build/reopen, and NWN behavior certification.
 
 Evidence in repo:
 1. `frontend/src/modules/scene/domain/areaWaypointConstructionProfile.ts`
@@ -1517,6 +1620,32 @@ Evidence in repo:
 43. `frontend/src/modules/scene/domain/triggerScriptResRefs.ts`
 44. `frontend/src/modules/layout/application/triggerScriptResRefsProvenance.ts`
 45. `frontend/tests/unit/modules/scene/domain/triggerScriptResRefs.test.ts`
+46. `backend/docs/aurora-reverse/area-existing-trigger-transition-storage-audit-v1-2026-09-02.md`
+47. `backend/src/modules/areas/domain/area-trigger-transition-storage.ts`
+48. `backend/test/unit/area-trigger-transition-storage.spec.ts`
+49. `backend/test/unit/area-trigger-transition-storage-parser.spec.ts`
+50. `backend/test/unit/area-update-draft-projector.trigger-transition-storage.spec.ts`
+51. `frontend/src/modules/scene/domain/triggerTransitionStorage.ts`
+52. `frontend/src/modules/layout/application/triggerTransitionStorageProvenance.ts`
+53. `frontend/tests/unit/modules/scene/domain/triggerTransitionStorage.test.ts`
+54. `frontend/tests/unit/modules/layout/workspaceSceneObjectClone.triggerTransitionStorage.test.ts`
+55. `backend/docs/aurora-reverse/area-existing-trigger-core-properties-audit-v1-2026-09-13.md`
+56. `backend/src/modules/areas/domain/area-trigger-core-properties.ts`
+57. `backend/test/unit/area-trigger-core-properties.spec.ts`
+58. `backend/test/unit/area-trigger-core-properties-parser.spec.ts`
+59. `backend/docs/aurora-reverse/area-existing-trigger-variable-table-audit-v1-2026-09-05.md`
+60. `backend/test/unit/area-trigger-variable-table-persistence.spec.ts`
+61. `frontend/tests/unit/modules/scene/domain/triggerVariableTable.test.ts`
+62. `backend/docs/aurora-reverse/area-existing-trigger-trap-properties-audit-v1-2026-09-13.md`
+63. `backend/src/modules/areas/domain/area-trigger-trap-properties.ts`
+64. `backend/test/unit/area-trigger-trap-properties.spec.ts`
+65. `backend/test/unit/area-trigger-trap-properties-parser.spec.ts`
+66. `backend/test/unit/area-update-draft-projector.trigger-trap-properties.spec.ts`
+67. `frontend/src/modules/scene/domain/triggerTrapProperties.ts`
+68. `frontend/src/modules/layout/application/triggerTrapPropertiesProvenance.ts`
+69. `frontend/tests/unit/modules/scene/domain/triggerTrapProperties.test.ts`
+70. `frontend/tests/unit/modules/layout/application/triggerTrapPropertiesProvenance.test.ts`
+71. `frontend/tests/unit/modules/layout/workspaceSceneObjectClone.triggerTrapProperties.test.ts`
 
 ---
 

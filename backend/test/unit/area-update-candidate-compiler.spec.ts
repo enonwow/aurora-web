@@ -31,6 +31,12 @@ import type { AreaTriggerScriptResRefsTelemetryPort } from
   "../../src/modules/areas/application/ports/area-trigger-script-resrefs-telemetry.port";
 import type { AreaTriggerTransitionStorageTelemetryPort } from
   "../../src/modules/areas/application/ports/area-trigger-transition-storage-telemetry.port";
+import type { AreaTriggerCorePropertiesTelemetryPort } from
+  "../../src/modules/areas/application/ports/area-trigger-core-properties-telemetry.port";
+import type { AreaTriggerTrapPropertiesTelemetryPort } from
+  "../../src/modules/areas/application/ports/area-trigger-trap-properties-telemetry.port";
+import type { AreaTriggerVariableTableTelemetryPort } from
+  "../../src/modules/areas/application/ports/area-trigger-variable-table-telemetry.port";
 import type { AreaStoreVariableTableTelemetryPort } from
   "../../src/modules/areas/application/ports/area-store-variable-table-telemetry.port";
 import type { AreaStoreRestrictionsTelemetryPort } from
@@ -2658,7 +2664,7 @@ describe("AreaUpdateCandidateCompiler", () => {
     expect(harness.appearanceCatalog.resolveEffectivePlaceablesTwoDaDescriptor).not.toHaveBeenCalled();
   });
 
-  it("compiles bounded inline-ASCII Placeable LocName and Description without blueprint sources", async () => {
+  it("compiles complete ordered inline-ASCII Placeable LocName and Description lists without blueprint sources", async () => {
     const harness = createHarness({ placeableTransform: true, itemTransform: true });
     const mutated = structuredClone(harness.snapshot);
     const payload = mutated.draft.payload as unknown as {
@@ -2687,7 +2693,13 @@ describe("AreaUpdateCandidateCompiler", () => {
     placeable.placeableProperties = {
       ...placeable.placeableProperties,
       localizedName: " Chest 2 ",
-      description: "Storage room",
+      localizedNameEntries: [
+        { languageId: 10, text: "Kufer" },
+        { languageId: 0, text: " Chest 2 " },
+        { languageId: 3, text: "Coffre" },
+      ],
+      description: "",
+      descriptionEntries: [],
     };
     harness.drafts.read.mockResolvedValueOnce(mutated);
 
@@ -2697,8 +2709,26 @@ describe("AreaUpdateCandidateCompiler", () => {
       kind: "placeable",
       sourceIndex: 0,
       localizedStrings: [
-        { field: "LocName", expectedValue: "Chest", value: " Chest 2 " },
-        { field: "Description", expectedValue: "Storage", value: "Storage room" },
+        {
+          field: "LocName",
+          expectedProfile: "simple_inline_ascii",
+          expectedValue: "Chest",
+          expectedEntries: [{ languageId: 0, text: "Chest" }],
+          value: " Chest 2 ",
+          valueEntries: [
+            { languageId: 10, text: "Kufer" },
+            { languageId: 0, text: " Chest 2 " },
+            { languageId: 3, text: "Coffre" },
+          ],
+        },
+        {
+          field: "Description",
+          expectedProfile: "simple_inline_ascii",
+          expectedValue: "Storage",
+          expectedEntries: [{ languageId: 0, text: "Storage" }],
+          value: "",
+          valueEntries: [],
+        },
       ],
     })]);
     expect(candidate.objectMutation).toMatchObject({
@@ -2720,7 +2750,11 @@ describe("AreaUpdateCandidateCompiler", () => {
             type: "cexolocstring",
             value: {
               strRef: 0xffff_ffff,
-              entries: [{ languageId: 0, text: " Chest 2 " }],
+              entries: [
+                { languageId: 10, text: "Kufer" },
+                { languageId: 0, text: " Chest 2 " },
+                { languageId: 3, text: "Coffre" },
+              ],
             },
           },
           {
@@ -2728,7 +2762,7 @@ describe("AreaUpdateCandidateCompiler", () => {
             type: "cexolocstring",
             value: {
               strRef: 0xffff_ffff,
-              entries: [{ languageId: 0, text: "Storage room" }],
+              entries: [],
             },
           },
         ]),
@@ -5358,7 +5392,11 @@ describe("AreaUpdateCandidateCompiler", () => {
   });
 
   it("compiles retained Creature FirstName/LastName/Description without resolving a blueprint", async () => {
-    const harness = createHarness({ creatureEquipment: true, itemTransform: true });
+    const harness = createHarness({
+      creatureEquipment: true,
+      creatureLocalizedStrings: true,
+      itemTransform: true,
+    });
     const mutated = structuredClone(harness.snapshot);
     const objects = (mutated.draft.payload as unknown as {
       editableScene: { objects: Array<Record<string, any>> };
@@ -5369,7 +5407,10 @@ describe("AreaUpdateCandidateCompiler", () => {
       firstName: {
         present: true,
         strRef: 0xffff_ffff,
-        entries: [{ languageId: 0, textBytesBase64: "R3VhcmQ=" }],
+        entries: [
+          { languageId: 42, textBytesBase64: "TGVnYWN5" },
+          { languageId: 0, textBytesBase64: "R3VhcmQ=" },
+        ],
       },
       lastName: { present: true, strRef: 0xffff_ffff, entries: [] },
       description: {
@@ -5381,8 +5422,15 @@ describe("AreaUpdateCandidateCompiler", () => {
     creature.creatureProperties = {
       ...(creature.creatureProperties ?? {}),
       firstName: " Captain ",
+      firstNameEntries: [
+        { languageId: 0, text: " Captain " },
+        { languageId: 2, text: "Capitaine" },
+        { languageId: 42, text: "Legacy 2" },
+      ],
       lastName: "Aribeth",
-      description: "New description",
+      lastNameEntries: [{ languageId: 0, text: "Aribeth" }],
+      description: "",
+      descriptionEntries: [],
     };
     harness.drafts.read.mockResolvedValueOnce(mutated);
 
@@ -5394,9 +5442,37 @@ describe("AreaUpdateCandidateCompiler", () => {
         kind: "creature",
         sourceIndex: 0,
         localizedStrings: [
-          { field: "FirstName", expectedValue: "Guard", value: " Captain " },
-          { field: "LastName", expectedValue: "", value: "Aribeth" },
-          { field: "Description", expectedValue: "Old description", value: "New description" },
+          {
+            field: "FirstName",
+            expectedProfile: "multi_entry_inline_ascii",
+            expectedValue: "Guard",
+            expectedEntries: [
+              { languageId: 42, text: "Legacy" },
+              { languageId: 0, text: "Guard" },
+            ],
+            value: " Captain ",
+            valueEntries: [
+              { languageId: 0, text: " Captain " },
+              { languageId: 2, text: "Capitaine" },
+              { languageId: 42, text: "Legacy 2" },
+            ],
+          },
+          {
+            field: "LastName",
+            expectedProfile: "empty_inline_ascii",
+            expectedValue: "",
+            expectedEntries: [],
+            value: "Aribeth",
+            valueEntries: [{ languageId: 0, text: "Aribeth" }],
+          },
+          {
+            field: "Description",
+            expectedProfile: "simple_inline_ascii",
+            expectedValue: "Old description",
+            expectedEntries: [{ languageId: 0, text: "Old description" }],
+            value: "",
+            valueEntries: [],
+          },
         ],
       }),
     ]);
@@ -5416,7 +5492,11 @@ describe("AreaUpdateCandidateCompiler", () => {
         fields: expect.arrayContaining([
           { label: "FirstName", type: "cexolocstring", value: {
             strRef: 0xffff_ffff,
-            entries: [{ languageId: 0, text: " Captain " }],
+            entries: [
+              { languageId: 0, text: " Captain " },
+              { languageId: 2, text: "Capitaine" },
+              { languageId: 42, text: "Legacy 2" },
+            ],
           } },
           { label: "LastName", type: "cexolocstring", value: {
             strRef: 0xffff_ffff,
@@ -5424,7 +5504,7 @@ describe("AreaUpdateCandidateCompiler", () => {
           } },
           { label: "Description", type: "cexolocstring", value: {
             strRef: 0xffff_ffff,
-            entries: [{ languageId: 0, text: "New description" }],
+            entries: [],
           } },
         ]),
       })],
@@ -5618,6 +5698,38 @@ describe("AreaUpdateCandidateCompiler", () => {
         ]),
       })],
     });
+  });
+
+  it("keeps Trigger trap-properties compilation successful when telemetry throws", async () => {
+    const harness = createHarness({ triggerTransform: true });
+    const mutated = structuredClone(harness.snapshot);
+    const payload = mutated.draft.payload as any;
+    const trigger = payload.editableScene.objects.find(
+      (object: any) => object.kind === "triggers",
+    )!;
+    trigger.source.sourceIndex = 0;
+    trigger.source.triggerTrapProperties = {
+      trapDetectable: 1,
+      trapDetectDc: 0,
+      trapDisarmable: 1,
+      disarmDc: 15,
+      trapFlag: 0,
+      trapOneShot: 1,
+      trapType: 0,
+    };
+    trigger.triggerTrapProperties = {
+      ...trigger.source.triggerTrapProperties,
+      trapFlag: 1,
+    };
+    harness.drafts.read.mockResolvedValueOnce(mutated);
+    harness.triggerTrapPropertiesTelemetry.emit.mockImplementation(() => {
+      throw new Error("telemetry unavailable");
+    });
+
+    await expect(compile(harness)).resolves.toMatchObject({
+      objectMutation: { totalPropertyUpdated: 1 },
+    });
+    expect(harness.triggerTrapPropertiesTelemetry.emit).toHaveBeenCalledTimes(4);
   });
 
   it("compiles one exact retained Trigger TemplateResRef CAS through candidate readback", async () => {
@@ -6005,6 +6117,283 @@ describe("AreaUpdateCandidateCompiler", () => {
       objectMutation: { totalPropertyUpdated: 1 },
     });
     expect(harness.triggerTransitionStorageTelemetry.emit).toHaveBeenCalledTimes(4);
+  });
+
+  it("compiles one exact retained Trigger core-properties tuple through candidate readback", async () => {
+    const harness = createHarness({ triggerTransform: true });
+    const mutated = structuredClone(harness.snapshot);
+    const payload = mutated.draft.payload as any;
+    const trigger = payload.editableScene.objects.find(
+      (object: any) => object.kind === "triggers",
+    )!;
+    const sourceCoreProperties = {
+      autoRemoveKey: 0,
+      factionId: 1,
+      cursorId: 0,
+      highlightHeight: 0,
+      keyName: "",
+      portraitId: 0,
+      triggerType: 0,
+    };
+    const targetCoreProperties = {
+      autoRemoveKey: 1,
+      factionId: 2,
+      cursorId: 3,
+      highlightHeight: Math.fround(1.5),
+      keyName: "gate_key",
+      portraitId: 4,
+      triggerType: 1,
+    };
+    trigger.source.sourceIndex = 0;
+    trigger.source.triggerCoreProperties = sourceCoreProperties;
+    trigger.triggerCoreProperties = targetCoreProperties;
+    harness.drafts.read.mockResolvedValueOnce(mutated);
+
+    const candidate = await compile(harness);
+
+    const git = candidate.resources.find((resource) => resource.extension === "git")!;
+    const gic = candidate.resources.find((resource) => resource.extension === "gic")!;
+    expect(gic.bytes).toEqual(harness.contents[`${AREA}.gic`]);
+    expect(candidate.objectMutation).toMatchObject({
+      totalPropertyUpdated: 1,
+      propertyUpdatedCounts: expect.objectContaining({ trigger: 1 }),
+    });
+    const triggerList = parseRawGffDocument(git.bytes)!.fields.find(
+      (field) => field.label === "TriggerList",
+    );
+    expect(triggerList).toMatchObject({
+      type: "list",
+      value: [expect.objectContaining({
+        fields: expect.arrayContaining([
+          { label: "AutoRemoveKey", type: "byte", value: 1 },
+          { label: "Faction", type: "dword", value: 2 },
+          { label: "Cursor", type: "byte", value: 3 },
+          { label: "HighlightHeight", type: "float", value: 1.5 },
+          { label: "KeyName", type: "cexostring", value: "gate_key" },
+          { label: "PortraitId", type: "word", value: 4 },
+          { label: "Type", type: "int", value: 1 },
+        ]),
+      })],
+    });
+    expect(harness.triggerCorePropertiesTelemetry.emit.mock.calls.map(([event]) => ({
+      ...event,
+      durationMs: Number.isInteger(event.durationMs) && event.durationMs >= 0,
+    }))).toEqual([
+      ["parse_source", "source_tuple_parsed"],
+      ["plan", "cas_planned"],
+      ["write", "git_tuple_written"],
+      ["readback", "candidate_tuple_verified"],
+    ].map(([operation, resultCode]) => ({
+      eventName: "area_trigger_core_properties_cas.v1",
+      operation,
+      outcome: "succeeded",
+      resultCode,
+      changedFieldCount: 7,
+      durationMs: true,
+    })));
+  });
+
+  it("keeps Trigger core-properties compilation successful when telemetry throws", async () => {
+    const harness = createHarness({ triggerTransform: true });
+    const mutated = structuredClone(harness.snapshot);
+    const payload = mutated.draft.payload as any;
+    const trigger = payload.editableScene.objects.find(
+      (object: any) => object.kind === "triggers",
+    )!;
+    trigger.source.sourceIndex = 0;
+    trigger.source.triggerCoreProperties = {
+      autoRemoveKey: 0,
+      factionId: 1,
+      cursorId: 0,
+      highlightHeight: 0,
+      keyName: "",
+      portraitId: 0,
+      triggerType: 0,
+    };
+    trigger.triggerCoreProperties = {
+      ...trigger.source.triggerCoreProperties,
+      autoRemoveKey: 1,
+    };
+    harness.drafts.read.mockResolvedValueOnce(mutated);
+    harness.triggerCorePropertiesTelemetry.emit.mockImplementation(() => {
+      throw new Error("telemetry unavailable");
+    });
+
+    await expect(compile(harness)).resolves.toMatchObject({
+      objectMutation: { totalPropertyUpdated: 1 },
+    });
+    expect(harness.triggerCorePropertiesTelemetry.emit).toHaveBeenCalledTimes(4);
+  });
+
+  it("compiles one exact retained Trigger trap-properties tuple through candidate readback", async () => {
+    const harness = createHarness({ triggerTransform: true });
+    const mutated = structuredClone(harness.snapshot);
+    const payload = mutated.draft.payload as any;
+    const trigger = payload.editableScene.objects.find(
+      (object: any) => object.kind === "triggers",
+    )!;
+    const sourceTrapProperties = {
+      trapDetectable: 1,
+      trapDetectDc: 0,
+      trapDisarmable: 1,
+      disarmDc: 15,
+      trapFlag: 0,
+      trapOneShot: 1,
+      trapType: 0,
+    };
+    const targetTrapProperties = {
+      trapDetectable: 0,
+      trapDetectDc: 17,
+      trapDisarmable: 0,
+      disarmDc: 23,
+      trapFlag: 1,
+      trapOneShot: 0,
+      trapType: 7,
+    };
+    trigger.source.sourceIndex = 0;
+    trigger.source.triggerTrapProperties = sourceTrapProperties;
+    trigger.triggerTrapProperties = targetTrapProperties;
+    harness.drafts.read.mockResolvedValueOnce(mutated);
+
+    const candidate = await compile(harness);
+
+    const git = candidate.resources.find((resource) => resource.extension === "git")!;
+    const gic = candidate.resources.find((resource) => resource.extension === "gic")!;
+    expect(gic.bytes).toEqual(harness.contents[`${AREA}.gic`]);
+    expect(candidate.objectMutation).toMatchObject({
+      totalPropertyUpdated: 1,
+      propertyUpdatedCounts: expect.objectContaining({ trigger: 1 }),
+    });
+    const triggerList = parseRawGffDocument(git.bytes)!.fields.find(
+      (field) => field.label === "TriggerList",
+    );
+    expect(triggerList).toMatchObject({
+      type: "list",
+      value: [expect.objectContaining({
+        fields: expect.arrayContaining([
+          { label: "TrapDetectable", type: "byte", value: 0 },
+          { label: "TrapDetectDC", type: "byte", value: 17 },
+          { label: "TrapDisarmable", type: "byte", value: 0 },
+          { label: "DisarmDC", type: "byte", value: 23 },
+          { label: "TrapFlag", type: "byte", value: 1 },
+          { label: "TrapOneShot", type: "byte", value: 0 },
+          { label: "TrapType", type: "byte", value: 7 },
+        ]),
+      })],
+    });
+    expect(harness.triggerTrapPropertiesTelemetry.emit.mock.calls.map(([event]) => ({
+      ...event,
+      durationMs: Number.isInteger(event.durationMs) && event.durationMs >= 0,
+    }))).toEqual([
+      ["parse_source", "source_tuple_parsed"],
+      ["plan", "cas_planned"],
+      ["write", "git_tuple_written"],
+      ["readback", "candidate_tuple_verified"],
+    ].map(([operation, resultCode]) => ({
+      eventName: "area_trigger_trap_properties_cas.v1",
+      operation,
+      outcome: "succeeded",
+      resultCode,
+      changedFieldCount: 7,
+      durationMs: true,
+    })));
+  });
+
+  it("compiles one exact retained Trigger VarTable CAS through candidate readback", async () => {
+    const harness = createHarness({ triggerTransform: true });
+    const mutated = structuredClone(harness.snapshot);
+    const payload = mutated.draft.payload as any;
+    const trigger = payload.editableScene.objects.find(
+      (object: any) => object.kind === "triggers",
+    )!;
+    trigger.source.sourceIndex = 0;
+    trigger.source.triggerVariables = { expectedEntries: [] };
+    trigger.triggerVariables = [
+      { name: "DoorState", type: "string", value: "locked" },
+      { name: "AttemptCount", type: "int", value: 2 },
+    ];
+    harness.drafts.read.mockResolvedValueOnce(mutated);
+
+    const candidate = await compile(harness);
+
+    const git = candidate.resources.find((resource) => resource.extension === "git")!;
+    const gic = candidate.resources.find((resource) => resource.extension === "gic")!;
+    expect(gic.bytes).toEqual(harness.contents[`${AREA}.gic`]);
+    expect(candidate.objectMutation).toMatchObject({
+      totalPropertyUpdated: 1,
+      propertyUpdatedCounts: expect.objectContaining({ trigger: 1 }),
+    });
+    const triggerList = parseRawGffDocument(git.bytes)!.fields.find(
+      (field) => field.label === "TriggerList",
+    );
+    expect(triggerList).toMatchObject({
+      type: "list",
+      value: [expect.objectContaining({
+        fields: expect.arrayContaining([{
+          label: "VarTable",
+          type: "list",
+          value: [
+            { typeId: 0, fields: [
+              { label: "Name", type: "cexostring", value: "DoorState" },
+              { label: "Type", type: "dword", value: 3 },
+              { label: "Value", type: "cexostring", value: "locked" },
+            ] },
+            { typeId: 0, fields: [
+              { label: "Name", type: "cexostring", value: "AttemptCount" },
+              { label: "Type", type: "dword", value: 1 },
+              { label: "Value", type: "int", value: 2 },
+            ] },
+          ],
+        }]),
+      })],
+    });
+    expect(harness.triggerVariableTableTelemetry.emit.mock.calls.map(([event]) => ({
+      ...event,
+      durationMs: Number.isInteger(event.durationMs) && event.durationMs >= 0,
+    }))).toEqual([
+      ["parse_source", "source_vector_parsed"],
+      ["plan", "cas_planned"],
+      ["write", "git_vector_written"],
+      ["readback", "candidate_vector_verified"],
+    ].map(([operation, resultCode]) => ({
+      eventName: "area_trigger_variable_table_cas.v1",
+      operation,
+      outcome: "succeeded",
+      resultCode,
+      changedEntryCount: 2,
+      durationMs: true,
+    })));
+    for (const [event] of harness.triggerVariableTableTelemetry.emit.mock.calls) {
+      expect(Object.keys(event).sort()).toEqual([
+        "changedEntryCount",
+        "durationMs",
+        "eventName",
+        "operation",
+        "outcome",
+        "resultCode",
+      ]);
+    }
+  });
+
+  it("keeps Trigger VarTable compilation successful when telemetry throws", async () => {
+    const harness = createHarness({ triggerTransform: true });
+    const mutated = structuredClone(harness.snapshot);
+    const payload = mutated.draft.payload as any;
+    const trigger = payload.editableScene.objects.find(
+      (object: any) => object.kind === "triggers",
+    )!;
+    trigger.source.sourceIndex = 0;
+    trigger.source.triggerVariables = { expectedEntries: [] };
+    trigger.triggerVariables = [{ name: "Ready", type: "int", value: 1 }];
+    harness.drafts.read.mockResolvedValueOnce(mutated);
+    harness.triggerVariableTableTelemetry.emit.mockImplementation(() => {
+      throw new Error("telemetry unavailable");
+    });
+
+    await expect(compile(harness)).resolves.toMatchObject({
+      objectMutation: { totalPropertyUpdated: 1 },
+    });
+    expect(harness.triggerVariableTableTelemetry.emit).toHaveBeenCalledTimes(4);
   });
 
   it("compiles one exact retained Waypoint Tag CAS with concurrent fixture changes through candidate readback", async () => {
@@ -6984,7 +7373,7 @@ describe("AreaUpdateCandidateCompiler", () => {
     });
   });
 
-  it("compiles ground-item localized-string CAS through whole-candidate readback", async () => {
+  it("compiles complete ordered ground-item localized-string lists through whole-candidate readback", async () => {
     const harness = createHarness({ itemTransform: true });
     const mutated = structuredClone(harness.snapshot);
     const payload = mutated.draft.payload as unknown as {
@@ -7015,8 +7404,18 @@ describe("AreaUpdateCandidateCompiler", () => {
     });
     item.itemProperties = {
       localizedName: " Sword 2 ",
-      description: "Unknown blade",
-      identifiedDescription: "Known",
+      localizedNameEntries: [
+        { languageId: 10, text: "Miecz" },
+        { languageId: 0, text: " Sword 2 " },
+        { languageId: 2, text: "Schwert" },
+      ],
+      description: "",
+      descriptionEntries: [],
+      identifiedDescription: "Known 2",
+      identifiedDescriptionEntries: [
+        { languageId: 10, text: "Rozpoznany" },
+        { languageId: 0, text: "Known 2" },
+      ],
     };
     harness.drafts.read.mockResolvedValueOnce(mutated);
 
@@ -7026,6 +7425,31 @@ describe("AreaUpdateCandidateCompiler", () => {
       totalPropertyUpdated: 1,
       propertyUpdatedCounts: expect.objectContaining({ item: 1 }),
     });
+    expect(candidate.projectedDraft.objectEditing?.propertyMutations).toEqual([
+      expect.objectContaining({
+        kind: "item",
+        sourceIndex: 0,
+        localizedStrings: [
+          expect.objectContaining({
+            field: "LocalizedName",
+            expectedEntries: [{ languageId: 0, text: "Sword" }],
+            valueEntries: [
+              { languageId: 10, text: "Miecz" },
+              { languageId: 0, text: " Sword 2 " },
+              { languageId: 2, text: "Schwert" },
+            ],
+          }),
+          expect.objectContaining({
+            field: "DescIdentified",
+            expectedEntries: [{ languageId: 0, text: "Known" }],
+            valueEntries: [
+              { languageId: 10, text: "Rozpoznany" },
+              { languageId: 0, text: "Known 2" },
+            ],
+          }),
+        ],
+      }),
+    ]);
     const git = candidate.resources.find((resource) => resource.extension === "git")!;
     const gic = candidate.resources.find((resource) => resource.extension === "gic")!;
     expect(gic.bytes).toEqual(harness.contents[`${AREA}.gic`]);
@@ -7041,7 +7465,11 @@ describe("AreaUpdateCandidateCompiler", () => {
             type: "cexolocstring",
             value: {
               strRef: 0xffff_ffff,
-              entries: [{ languageId: 0, text: " Sword 2 " }],
+              entries: [
+                { languageId: 10, text: "Miecz" },
+                { languageId: 0, text: " Sword 2 " },
+                { languageId: 2, text: "Schwert" },
+              ],
             },
           },
           {
@@ -7049,7 +7477,7 @@ describe("AreaUpdateCandidateCompiler", () => {
             type: "cexolocstring",
             value: {
               strRef: 0xffff_ffff,
-              entries: [{ languageId: 0, text: "Unknown blade" }],
+              entries: [],
             },
           },
           {
@@ -7057,7 +7485,10 @@ describe("AreaUpdateCandidateCompiler", () => {
             type: "cexolocstring",
             value: {
               strRef: 0xffff_ffff,
-              entries: [{ languageId: 0, text: "Known" }],
+              entries: [
+                { languageId: 10, text: "Rozpoznany" },
+                { languageId: 0, text: "Known 2" },
+              ],
             },
           },
         ]),
@@ -7611,6 +8042,7 @@ function createHarness(options: Readonly<{
   invalidCandidate?: boolean;
   objectDeletion?: boolean;
   creatureEquipment?: boolean;
+  creatureLocalizedStrings?: boolean;
   creatureAppearance?: boolean;
   creatureGender?: boolean;
   creatureWalkRate?: boolean;
@@ -7669,6 +8101,7 @@ function createHarness(options: Readonly<{
     includeTrigger: options.triggerTransform,
     includeWaypoint: options.waypointTransform || options.waypointTagMutation,
     includeCreatureEquipment: options.creatureEquipment,
+    creatureLocalizedStrings: options.creatureLocalizedStrings,
     includeCreatureAppearance: options.creatureAppearance,
     includeCreatureGender: options.creatureGender,
     includeCreatureWalkRate: options.creatureWalkRate,
@@ -7904,6 +8337,15 @@ function createHarness(options: Readonly<{
   const triggerTransitionStorageTelemetry = {
     emit: jest.fn(),
   } satisfies AreaTriggerTransitionStorageTelemetryPort;
+  const triggerCorePropertiesTelemetry = {
+    emit: jest.fn(),
+  } satisfies AreaTriggerCorePropertiesTelemetryPort;
+  const triggerTrapPropertiesTelemetry = {
+    emit: jest.fn(),
+  } satisfies AreaTriggerTrapPropertiesTelemetryPort;
+  const triggerVariableTableTelemetry = {
+    emit: jest.fn(),
+  } satisfies AreaTriggerVariableTableTelemetryPort;
   const storeVariableTableTelemetry = {
     emit: jest.fn(),
   } satisfies AreaStoreVariableTableTelemetryPort;
@@ -7933,6 +8375,9 @@ function createHarness(options: Readonly<{
       storeScriptResRefsTelemetry,
       triggerScriptResRefsTelemetry,
       triggerTransitionStorageTelemetry,
+      triggerCorePropertiesTelemetry,
+      triggerTrapPropertiesTelemetry,
+      triggerVariableTableTelemetry,
       storeVariableTableTelemetry,
       storeRestrictionsTelemetry,
       storeInventoryTelemetry,
@@ -7947,6 +8392,9 @@ function createHarness(options: Readonly<{
     storeScriptResRefsTelemetry,
     triggerScriptResRefsTelemetry,
     triggerTransitionStorageTelemetry,
+    triggerCorePropertiesTelemetry,
+    triggerTrapPropertiesTelemetry,
+    triggerVariableTableTelemetry,
     storeVariableTableTelemetry,
     storeRestrictionsTelemetry,
     storeInventoryTelemetry,
@@ -10146,6 +10594,7 @@ function objectPair(options: Readonly<{
   includeTrigger?: boolean;
   includeWaypoint?: boolean;
   includeCreatureEquipment?: boolean;
+  creatureLocalizedStrings?: boolean;
   includeCreatureAppearance?: boolean;
   includeCreatureGender?: boolean;
   includeCreatureWalkRate?: boolean;
@@ -10215,6 +10664,20 @@ function objectPair(options: Readonly<{
           { label: "LinkedTo", type: "cexostring" as const, value: "east_gate" },
           { label: "LinkedToFlags", type: "byte" as const, value: 2 },
           { label: "LoadScreenID", type: "word" as const, value: 7 },
+          { label: "AutoRemoveKey", type: "byte" as const, value: 0 },
+          { label: "Faction", type: "dword" as const, value: 1 },
+          { label: "Cursor", type: "byte" as const, value: 0 },
+          { label: "HighlightHeight", type: "float" as const, value: 0 },
+          { label: "KeyName", type: "cexostring" as const, value: "" },
+          { label: "PortraitId", type: "word" as const, value: 0 },
+          { label: "Type", type: "int" as const, value: 0 },
+          { label: "TrapDetectable", type: "byte" as const, value: 1 },
+          { label: "TrapDetectDC", type: "byte" as const, value: 0 },
+          { label: "TrapDisarmable", type: "byte" as const, value: 1 },
+          { label: "DisarmDC", type: "byte" as const, value: 15 },
+          { label: "TrapFlag", type: "byte" as const, value: 0 },
+          { label: "TrapOneShot", type: "byte" as const, value: 1 },
+          { label: "TrapType", type: "byte" as const, value: 0 },
         ] : []),
         ...(waypoint ? [
           { label: "Appearance", type: "byte" as const, value: 1 },
@@ -10249,7 +10712,12 @@ function objectPair(options: Readonly<{
           { label: "Interruptable", type: "byte" as const, value: 1 },
           { label: "FirstName", type: "cexolocstring" as const, value: {
             strRef: 0xffff_ffff,
-            entries: [{ languageId: 0, text: "Guard" }],
+            entries: options.creatureLocalizedStrings
+              ? [
+                  { languageId: 42, text: "Legacy" },
+                  { languageId: 0, text: "Guard" },
+                ]
+              : [{ languageId: 0, text: "Guard" }],
           } },
           { label: "LastName", type: "cexolocstring" as const, value: {
             strRef: 0xffff_ffff,

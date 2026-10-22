@@ -1,5 +1,24 @@
 # Standard obsługi Aurora Toolset (fail-closed)
 
+### Explicitly authorized owned NWN foreground request (2026-09-10)
+
+When a consuming user authorizes bringing their owned NWN test to the front, use `backend/scripts/foreground-owned-nwmain.mjs dry-run` then `foreground`, with `--runtimeDir` pointing to the exact verified S07 placement and `--authorization` recording that instruction. This public route verifies installed MOD/HAK hashes, observation, exact PID/StartTime/HWND, one enabled window, non-primary display and unchanged geometry. It addresses only that NWN window, without global input, moving other windows or setting permanent topmost. Actual foreground success is recorded separately from subsequent physical capture validation. A refused foreground request does not authorize input injection, manipulating another application's window or repeated focus forcing. Preserve any original failed capture and use a fresh capture path after a verified foreground change.
+
+The foreground route also exposes `capture-front --runtimeDir ... --authorization ... --out ... --resultOut ... --ffmpeg ...` for an explicitly authorized proof when a topmost application still covers NWN. This is one bounded 25-second capture: temporarily raise only the exact owned NWN using HWND_TOPMOST without activation, retain the ordinary physical capture checks, and restore its prior non-topmost state in `finally`. A pre-existing topmost state is preserved. The accompanying `.window.json` records raise/restoration separately; this is not a claim that Windows granted foreground input focus. Never lower or minimize the covering application. This operation was added after V7's ordinary HWND_TOP request remained covered by ChatGPT.
+
+### Report-bound NWN fatal-dialog cleanup (2026-09-10)
+
+With explicit or standing authorization to close the exact owned process, use
+the public `close-nwmain-window-no-global-input.mjs` commands `inspect`, then
+`close-fatal-dry-run` and `close-fatal` for the known NWN fatal dialog. The last
+two require exact PID, StartTime, report path and SHA256. Admission binds the
+one owned fatal modal, one OK button and its report text; unknown dialogs remain
+rejected. One targeted WM_CLOSE precedes any bounded exact-process fallback.
+See `docs/brainstorm/nwmain-fatal-close.md` and the 13 negative/parse tests.
+Live qualification: Drain Life beam-v2 PID44316/start08:02:58.0383644Z, fatal
+HWND1049272, preserved report efbb14c4...; normal exit in247ms without force.
+This cleanup does not constitute successful runtime or visual proof.
+
 Status punktu może mieć wyłącznie wartość `verified`, `failed` lub `missing`.
 Brak artefaktu live oznacza `missing`, nigdy ukończenie.
 

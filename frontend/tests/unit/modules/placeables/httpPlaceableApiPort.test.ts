@@ -635,6 +635,7 @@ describe("HttpPlaceableApiPort", () => {
       assetRefs: {
         modelAssetIds: ["asset_model_001"],
         derivedModelAssetIds: ["asset_model_derived_001"],
+        chunkModelAssetIds: undefined,
         textureAssetIds: ["asset_texture_001"],
         materialAssetIds: ["asset_material_001"],
         metadataAssetIds: ["asset_meta_001"],
@@ -713,11 +714,17 @@ describe("HttpPlaceableApiPort", () => {
               blending: "punchthrough",
               auroraBlendField48: 2,
               auroraBlendField4c: 3,
+              customShaderFS: undefined,
+              customShaderGS: undefined,
+              customShaderProgram: undefined,
+              customShaderVS: undefined,
               decal: true,
               transparency: true,
               twoSided: true,
+              volumetric: undefined,
               renderHint: "NormalAndSpecMapped",
               roughness: 0.62,
+              sampleFramebuffer: undefined,
               specularity: 0.45,
               bumpmaptexture: "fx_punch_bump",
               bumpyshinytexture: "fx_punch_shiny",
@@ -748,6 +755,7 @@ describe("HttpPlaceableApiPort", () => {
           }
         ]
       },
+      auroraModelGraph: undefined,
       auroraVfxPayload: {
         version: "aurora-vfx-payload/v1",
         canonicalStatus: "canonical",

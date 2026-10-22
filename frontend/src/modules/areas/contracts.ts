@@ -726,6 +726,26 @@ export interface AreaApiTriggerTransitionStorage {
   readonly loadScreenId: number;
 }
 
+export interface AreaApiTriggerCoreProperties {
+  readonly autoRemoveKey: 0 | 1;
+  readonly factionId: number;
+  readonly cursorId: number;
+  readonly highlightHeight: number;
+  readonly keyName: string;
+  readonly portraitId: number;
+  readonly triggerType: number;
+}
+
+export interface AreaApiTriggerTrapProperties {
+  readonly trapDetectable: number;
+  readonly trapDetectDc: number;
+  readonly trapDisarmable: number;
+  readonly disarmDc: number;
+  readonly trapFlag: number;
+  readonly trapOneShot: number;
+  readonly trapType: number;
+}
+
 export type AreaApiEncounterFactionStorage =
   | Readonly<{ present: false }>
   | Readonly<{ present: true; nativeType: "dword"; value: number }>;
@@ -1091,6 +1111,20 @@ export interface AreaApiCreatureClassIdentityEntry {
   readonly opaqueSiblingFieldCount: number;
   readonly canonicalSpellListFieldCount: number;
   readonly spellEntryCount: number;
+  readonly spellLists?: readonly AreaApiCreatureClassSpellListState[];
+}
+
+export interface AreaApiCreatureClassSpellEntryState {
+  readonly spellId: number;
+  readonly spellMetaMagic: number;
+  readonly spellFlags: number;
+  readonly opaqueSiblingFieldCount: number;
+}
+
+export interface AreaApiCreatureClassSpellListState {
+  readonly listKind: "known" | "memorized";
+  readonly spellLevel: number;
+  readonly entries: readonly AreaApiCreatureClassSpellEntryState[];
 }
 
 export interface AreaApiCreatureClassesTable {
@@ -1762,6 +1796,9 @@ export interface AreaApiObjectPlacement {
   triggerLocalizedName?: AreaApiNativeLocalizedStringStorage;
   triggerScriptResRefs?: AreaApiTriggerScriptResRefsStorage;
   triggerTransitionStorage?: AreaApiTriggerTransitionStorage;
+  triggerCoreProperties?: AreaApiTriggerCoreProperties;
+  triggerTrapProperties?: AreaApiTriggerTrapProperties;
+  triggerVariables?: AreaApiVariableProvenance;
   encounterTag?: AreaApiEncounterTagStorage;
   encounterTemplateResRef?: AreaApiEncounterTemplateResRefStorage;
   waypointTag?: AreaApiWaypointTagStorage;

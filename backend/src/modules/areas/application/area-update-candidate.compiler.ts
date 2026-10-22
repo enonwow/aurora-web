@@ -37,6 +37,18 @@ import type {
   AreaTriggerTransitionStorageTelemetryPort,
 } from "./ports/area-trigger-transition-storage-telemetry.port";
 import type {
+  AreaTriggerCorePropertiesTelemetryEvent,
+  AreaTriggerCorePropertiesTelemetryPort,
+} from "./ports/area-trigger-core-properties-telemetry.port";
+import type {
+  AreaTriggerTrapPropertiesTelemetryEvent,
+  AreaTriggerTrapPropertiesTelemetryPort,
+} from "./ports/area-trigger-trap-properties-telemetry.port";
+import type {
+  AreaTriggerVariableTableTelemetryEvent,
+  AreaTriggerVariableTableTelemetryPort,
+} from "./ports/area-trigger-variable-table-telemetry.port";
+import type {
   AreaStoreVariableTableTelemetryEvent,
   AreaStoreVariableTableTelemetryPort,
 } from "./ports/area-store-variable-table-telemetry.port";
@@ -99,6 +111,8 @@ import {
 import { AREA_STORE_COMMERCE_FIELDS } from "../domain/area-store-commerce";
 import { AREA_STORE_SCRIPT_RESREF_FIELDS } from "../domain/area-store-script-resrefs";
 import { AREA_TRIGGER_SCRIPT_RESREF_FIELDS } from "../domain/area-trigger-script-resrefs";
+import { AREA_TRIGGER_CORE_PROPERTY_FIELDS } from "../domain/area-trigger-core-properties";
+import { AREA_TRIGGER_TRAP_PROPERTY_FIELDS } from "../domain/area-trigger-trap-properties";
 import { AREA_DOOR_CONSTRUCTION_PROFILE } from "../domain/area-door-construction-profile";
 import { AREA_PLACEABLE_DYNAMIC_CONSTRUCTION_PROFILE } from "../domain/area-placeable-construction-profile";
 import { AREA_ITEM_DYNAMIC_CONSTRUCTION_PROFILE } from "../domain/area-item-construction-profile";
@@ -148,6 +162,10 @@ import {
   admitCreatureClassIdentityCatalogMutations,
   AreaCreatureClassIdentityCatalogAdmissionError,
 } from "./area-creature-class-identity-catalog-admission";
+import {
+  admitCreatureClassSpellReplacementCatalogMutations,
+  AreaCreatureClassSpellReplacementCatalogAdmissionError,
+} from "./area-creature-class-spell-replacement-catalog-admission";
 import {
   admitCreatureSkillListCatalogMutations,
   AreaCreatureSkillListCatalogAdmissionError,
@@ -214,6 +232,9 @@ export interface AreaUpdateCandidateCompilerDependencies {
   readonly storeScriptResRefsTelemetry?: AreaStoreScriptResRefsTelemetryPort;
   readonly triggerScriptResRefsTelemetry?: AreaTriggerScriptResRefsTelemetryPort;
   readonly triggerTransitionStorageTelemetry?: AreaTriggerTransitionStorageTelemetryPort;
+  readonly triggerCorePropertiesTelemetry?: AreaTriggerCorePropertiesTelemetryPort;
+  readonly triggerTrapPropertiesTelemetry?: AreaTriggerTrapPropertiesTelemetryPort;
+  readonly triggerVariableTableTelemetry?: AreaTriggerVariableTableTelemetryPort;
   readonly storeVariableTableTelemetry?: AreaStoreVariableTableTelemetryPort;
   readonly storeRestrictionsTelemetry?: AreaStoreRestrictionsTelemetryPort;
   readonly storeInventoryTelemetry?: AreaStoreInventoryTelemetryPort;
@@ -235,6 +256,7 @@ export interface AreaUpdateCandidateCompilerDependencies {
     | "resolveEffectiveCreatureSoundSetsTwoDaTable"
     | "resolveEffectiveCreatureStartingPackagesTwoDaTable"
     | "resolveEffectiveCreatureClassesTwoDaTable"
+    | "resolveEffectiveCreatureClassSpellsTwoDaTable"
     | "resolveEffectiveCreatureSkillsTwoDaTable"
     | "resolveEffectiveCreatureFeatsTwoDaTable"
     | "resolveEffectiveCreatureSpecialAbilitiesTwoDaTable"
@@ -455,6 +477,36 @@ export class AreaUpdateCandidateCompiler {
               ),
           })]
         : []);
+      const triggerCorePropertiesTelemetryProfiles = (
+        projected.objectEditing.propertyMutations ?? []
+      ).flatMap((mutation) => mutation.kind === "trigger" && mutation.coreProperties
+        ? [Object.freeze({
+            changedFieldCount: AREA_TRIGGER_CORE_PROPERTY_FIELDS.filter(
+              (field) => mutation.coreProperties?.expectedValue[field.key] !==
+                mutation.coreProperties?.value[field.key],
+            ).length,
+          })]
+        : []);
+      const triggerTrapPropertiesTelemetryProfiles = (
+        projected.objectEditing.propertyMutations ?? []
+      ).flatMap((mutation) => mutation.kind === "trigger" && mutation.trapProperties
+        ? [Object.freeze({
+            changedFieldCount: AREA_TRIGGER_TRAP_PROPERTY_FIELDS.filter(
+              (field) => mutation.trapProperties?.expectedValue[field.key] !==
+                mutation.trapProperties?.value[field.key],
+            ).length,
+          })]
+        : []);
+      const triggerVariableTableTelemetryProfiles = (
+        projected.objectEditing.propertyMutations ?? []
+      ).flatMap((mutation) => mutation.kind === "trigger" && mutation.variables
+        ? [Object.freeze({
+            changedEntryCount: changedVariableEntryCount(
+              mutation.variables.expectedEntries,
+              mutation.variables.entries,
+            ),
+          })]
+        : []);
       const storeVariableTableTelemetryProfiles = (
         projected.objectEditing.propertyMutations ?? []
       ).flatMap((mutation) => mutation.kind === "store" && mutation.variables
@@ -505,6 +557,9 @@ export class AreaUpdateCandidateCompiler {
       const storeScriptResRefsStartedAt = Date.now();
       const triggerScriptResRefsStartedAt = Date.now();
       const triggerTransitionStorageStartedAt = Date.now();
+      const triggerCorePropertiesStartedAt = Date.now();
+      const triggerTrapPropertiesStartedAt = Date.now();
+      const triggerVariableTableStartedAt = Date.now();
       const storeVariableTableStartedAt = Date.now();
       const storeRestrictionsStartedAt = Date.now();
       const storeInventoryStartedAt = Date.now();
@@ -536,6 +591,24 @@ export class AreaUpdateCandidateCompiler {
             durationMs: elapsedMilliseconds(triggerTransitionStorageStartedAt),
           },
         );
+        this.emitTriggerCorePropertiesTelemetryBatch(triggerCorePropertiesTelemetryProfiles, {
+          operation: "plan",
+          outcome: "failed",
+          resultCode: "source_git_stale",
+          durationMs: elapsedMilliseconds(triggerCorePropertiesStartedAt),
+        });
+        this.emitTriggerTrapPropertiesTelemetryBatch(triggerTrapPropertiesTelemetryProfiles, {
+          operation: "plan",
+          outcome: "failed",
+          resultCode: "source_git_stale",
+          durationMs: elapsedMilliseconds(triggerTrapPropertiesStartedAt),
+        });
+        this.emitTriggerVariableTableTelemetryBatch(triggerVariableTableTelemetryProfiles, {
+          operation: "plan",
+          outcome: "failed",
+          resultCode: "source_git_stale",
+          durationMs: elapsedMilliseconds(triggerVariableTableStartedAt),
+        });
         this.emitStoreVariableTableTelemetryBatch(storeVariableTableTelemetryProfiles, {
           operation: "plan",
           outcome: "failed",
@@ -595,6 +668,24 @@ export class AreaUpdateCandidateCompiler {
             durationMs: elapsedMilliseconds(triggerTransitionStorageStartedAt),
           },
         );
+        this.emitTriggerCorePropertiesTelemetryBatch(triggerCorePropertiesTelemetryProfiles, {
+          operation: "plan",
+          outcome: "failed",
+          resultCode: "source_gic_stale",
+          durationMs: elapsedMilliseconds(triggerCorePropertiesStartedAt),
+        });
+        this.emitTriggerTrapPropertiesTelemetryBatch(triggerTrapPropertiesTelemetryProfiles, {
+          operation: "plan",
+          outcome: "failed",
+          resultCode: "source_gic_stale",
+          durationMs: elapsedMilliseconds(triggerTrapPropertiesStartedAt),
+        });
+        this.emitTriggerVariableTableTelemetryBatch(triggerVariableTableTelemetryProfiles, {
+          operation: "plan",
+          outcome: "failed",
+          resultCode: "source_gic_stale",
+          durationMs: elapsedMilliseconds(triggerVariableTableStartedAt),
+        });
         this.emitStoreVariableTableTelemetryBatch(storeVariableTableTelemetryProfiles, {
           operation: "plan",
           outcome: "failed",
@@ -655,6 +746,24 @@ export class AreaUpdateCandidateCompiler {
               durationMs: elapsedMilliseconds(triggerTransitionStorageStartedAt),
             },
           );
+          this.emitTriggerCorePropertiesTelemetryBatch(triggerCorePropertiesTelemetryProfiles, {
+            operation: "plan",
+            outcome: "failed",
+            resultCode: "source_or_cas_rejected",
+            durationMs: elapsedMilliseconds(triggerCorePropertiesStartedAt),
+          });
+          this.emitTriggerTrapPropertiesTelemetryBatch(triggerTrapPropertiesTelemetryProfiles, {
+            operation: "plan",
+            outcome: "failed",
+            resultCode: "source_or_cas_rejected",
+            durationMs: elapsedMilliseconds(triggerTrapPropertiesStartedAt),
+          });
+          this.emitTriggerVariableTableTelemetryBatch(triggerVariableTableTelemetryProfiles, {
+            operation: "plan",
+            outcome: "failed",
+            resultCode: "source_or_cas_rejected",
+            durationMs: elapsedMilliseconds(triggerVariableTableStartedAt),
+          });
           this.emitStoreVariableTableTelemetryBatch(storeVariableTableTelemetryProfiles, {
             operation: "plan",
             outcome: "failed",
@@ -702,6 +811,24 @@ export class AreaUpdateCandidateCompiler {
             durationMs: elapsedMilliseconds(triggerTransitionStorageStartedAt),
           },
         );
+        this.emitTriggerCorePropertiesTelemetryBatch(triggerCorePropertiesTelemetryProfiles, {
+          operation: "parse_source",
+          outcome: "succeeded",
+          resultCode: "source_tuple_parsed",
+          durationMs: elapsedMilliseconds(triggerCorePropertiesStartedAt),
+        });
+        this.emitTriggerTrapPropertiesTelemetryBatch(triggerTrapPropertiesTelemetryProfiles, {
+          operation: "parse_source",
+          outcome: "succeeded",
+          resultCode: "source_tuple_parsed",
+          durationMs: elapsedMilliseconds(triggerTrapPropertiesStartedAt),
+        });
+        this.emitTriggerVariableTableTelemetryBatch(triggerVariableTableTelemetryProfiles, {
+          operation: "parse_source",
+          outcome: "succeeded",
+          resultCode: "source_vector_parsed",
+          durationMs: elapsedMilliseconds(triggerVariableTableStartedAt),
+        });
         this.emitStoreVariableTableTelemetryBatch(storeVariableTableTelemetryProfiles, {
           operation: "parse_source",
           outcome: "succeeded",
@@ -787,6 +914,24 @@ export class AreaUpdateCandidateCompiler {
             durationMs: elapsedMilliseconds(triggerTransitionStorageStartedAt),
           },
         );
+        this.emitTriggerCorePropertiesTelemetryBatch(triggerCorePropertiesTelemetryProfiles, {
+          operation: "plan",
+          outcome: "succeeded",
+          resultCode: "cas_planned",
+          durationMs: elapsedMilliseconds(triggerCorePropertiesStartedAt),
+        });
+        this.emitTriggerTrapPropertiesTelemetryBatch(triggerTrapPropertiesTelemetryProfiles, {
+          operation: "plan",
+          outcome: "succeeded",
+          resultCode: "cas_planned",
+          durationMs: elapsedMilliseconds(triggerTrapPropertiesStartedAt),
+        });
+        this.emitTriggerVariableTableTelemetryBatch(triggerVariableTableTelemetryProfiles, {
+          operation: "plan",
+          outcome: "succeeded",
+          resultCode: "cas_planned",
+          durationMs: elapsedMilliseconds(triggerVariableTableStartedAt),
+        });
         this.emitStoreVariableTableTelemetryBatch(storeVariableTableTelemetryProfiles, {
           operation: "admit_profile",
           outcome: "succeeded",
@@ -821,6 +966,7 @@ export class AreaUpdateCandidateCompiler {
         await this.validateCreatureSoundSetFileMutations(plan.propertyMutations);
         await this.validateCreatureStartingPackageMutations(plan.propertyMutations);
         await this.validateCreatureClassIdentityMutations(plan.propertyMutations);
+        await this.validateCreatureClassSpellReplacementMutations(plan.propertyMutations);
         await this.validateCreatureSkillListMutations(plan.propertyMutations);
         await this.validateCreatureFeatListMutations(plan.propertyMutations);
         await this.validateCreatureSpecialAbilityListMutations(plan.propertyMutations);
@@ -1330,6 +1476,24 @@ export class AreaUpdateCandidateCompiler {
               durationMs: elapsedMilliseconds(writeStartedAt),
             },
           );
+          this.emitTriggerCorePropertiesTelemetryBatch(triggerCorePropertiesTelemetryProfiles, {
+            operation: "write",
+            outcome: "failed",
+            resultCode: "pair_write_or_readback_rejected",
+            durationMs: elapsedMilliseconds(writeStartedAt),
+          });
+          this.emitTriggerTrapPropertiesTelemetryBatch(triggerTrapPropertiesTelemetryProfiles, {
+            operation: "write",
+            outcome: "failed",
+            resultCode: "pair_write_or_readback_rejected",
+            durationMs: elapsedMilliseconds(writeStartedAt),
+          });
+          this.emitTriggerVariableTableTelemetryBatch(triggerVariableTableTelemetryProfiles, {
+            operation: "write",
+            outcome: "failed",
+            resultCode: "pair_write_or_readback_rejected",
+            durationMs: elapsedMilliseconds(writeStartedAt),
+          });
           this.emitStoreVariableTableTelemetryBatch(storeVariableTableTelemetryProfiles, {
             operation: "write",
             outcome: "failed",
@@ -1386,6 +1550,24 @@ export class AreaUpdateCandidateCompiler {
             durationMs: elapsedMilliseconds(writeStartedAt),
           },
         );
+        this.emitTriggerCorePropertiesTelemetryBatch(triggerCorePropertiesTelemetryProfiles, {
+          operation: "write",
+          outcome: "succeeded",
+          resultCode: "git_tuple_written",
+          durationMs: elapsedMilliseconds(writeStartedAt),
+        });
+        this.emitTriggerTrapPropertiesTelemetryBatch(triggerTrapPropertiesTelemetryProfiles, {
+          operation: "write",
+          outcome: "succeeded",
+          resultCode: "git_tuple_written",
+          durationMs: elapsedMilliseconds(writeStartedAt),
+        });
+        this.emitTriggerVariableTableTelemetryBatch(triggerVariableTableTelemetryProfiles, {
+          operation: "write",
+          outcome: "succeeded",
+          resultCode: "git_vector_written",
+          durationMs: elapsedMilliseconds(writeStartedAt),
+        });
         this.emitStoreVariableTableTelemetryBatch(storeVariableTableTelemetryProfiles, {
           operation: "write",
           outcome: "succeeded",
@@ -1431,6 +1613,24 @@ export class AreaUpdateCandidateCompiler {
             durationMs: elapsedMilliseconds(writeStartedAt),
           },
         );
+        this.emitTriggerCorePropertiesTelemetryBatch(triggerCorePropertiesTelemetryProfiles, {
+          operation: "readback",
+          outcome: "succeeded",
+          resultCode: "candidate_tuple_verified",
+          durationMs: elapsedMilliseconds(writeStartedAt),
+        });
+        this.emitTriggerTrapPropertiesTelemetryBatch(triggerTrapPropertiesTelemetryProfiles, {
+          operation: "readback",
+          outcome: "succeeded",
+          resultCode: "candidate_tuple_verified",
+          durationMs: elapsedMilliseconds(writeStartedAt),
+        });
+        this.emitTriggerVariableTableTelemetryBatch(triggerVariableTableTelemetryProfiles, {
+          operation: "readback",
+          outcome: "succeeded",
+          resultCode: "candidate_vector_verified",
+          durationMs: elapsedMilliseconds(writeStartedAt),
+        });
         this.emitStoreVariableTableTelemetryBatch(storeVariableTableTelemetryProfiles, {
           operation: "readback",
           outcome: "succeeded",
@@ -2679,6 +2879,46 @@ export class AreaUpdateCandidateCompiler {
     }
   }
 
+  private emitTriggerCorePropertiesTelemetryBatch(
+    profiles: readonly Readonly<{ changedFieldCount: number }>[],
+    event: Omit<
+      AreaTriggerCorePropertiesTelemetryEvent,
+      "eventName" | "changedFieldCount"
+    >,
+  ): void {
+    for (const profile of profiles) {
+      try {
+        this.dependencies.triggerCorePropertiesTelemetry?.emit(Object.freeze({
+          eventName: "area_trigger_core_properties_cas.v1",
+          ...event,
+          changedFieldCount: profile.changedFieldCount,
+        }));
+      } catch {
+        // Telemetry is intentionally best-effort and cannot change Area compilation.
+      }
+    }
+  }
+
+  private emitTriggerTrapPropertiesTelemetryBatch(
+    profiles: readonly Readonly<{ changedFieldCount: number }>[],
+    event: Omit<
+      AreaTriggerTrapPropertiesTelemetryEvent,
+      "eventName" | "changedFieldCount"
+    >,
+  ): void {
+    for (const profile of profiles) {
+      try {
+        this.dependencies.triggerTrapPropertiesTelemetry?.emit(Object.freeze({
+          eventName: "area_trigger_trap_properties_cas.v1",
+          ...event,
+          changedFieldCount: profile.changedFieldCount,
+        }));
+      } catch {
+        // Telemetry is intentionally best-effort and cannot change Area compilation.
+      }
+    }
+  }
+
   private emitStoreVariableTableTelemetryBatch(
     profiles: readonly Readonly<{ entryCount: number }>[],
     event: Omit<
@@ -2692,6 +2932,26 @@ export class AreaUpdateCandidateCompiler {
           eventName: "area_store_variable_table_cas.v1",
           ...event,
           entryCount: profile.entryCount,
+        }));
+      } catch {
+        // Telemetry is intentionally best-effort and cannot change Area compilation.
+      }
+    }
+  }
+
+  private emitTriggerVariableTableTelemetryBatch(
+    profiles: readonly Readonly<{ changedEntryCount: number }>[],
+    event: Omit<
+      AreaTriggerVariableTableTelemetryEvent,
+      "eventName" | "changedEntryCount"
+    >,
+  ): void {
+    for (const profile of profiles) {
+      try {
+        this.dependencies.triggerVariableTableTelemetry?.emit(Object.freeze({
+          eventName: "area_trigger_variable_table_cas.v1",
+          ...event,
+          changedEntryCount: profile.changedEntryCount,
         }));
       } catch {
         // Telemetry is intentionally best-effort and cannot change Area compilation.
@@ -3526,6 +3786,45 @@ export class AreaUpdateCandidateCompiler {
             [
               `creature:StartingPackage:phase=${error.phase}:row=${error.targetRow}:not_admitted`,
             ],
+          );
+      }
+    }
+  }
+
+  private async validateCreatureClassSpellReplacementMutations(
+    mutations: readonly ExistingAreaObjectPropertyMutation[],
+  ): Promise<void> {
+    try {
+      await admitCreatureClassSpellReplacementCatalogMutations(
+        mutations,
+        this.dependencies.appearanceCatalog,
+      );
+    } catch (error) {
+      if (!(error instanceof AreaCreatureClassSpellReplacementCatalogAdmissionError)) {
+        throw error;
+      }
+      switch (error.reason) {
+        case "catalog_unavailable":
+        case "table_lookup_failed":
+        case "source_unavailable":
+          throw compilerError(
+            "AREA_UPDATE_STORAGE_UNAVAILABLE",
+            503,
+            "The effective Creature class-spell catalogs could not be resolved.",
+          );
+        case "draft_source_changed":
+          throw compilerError(
+            "AREA_UPDATE_SOURCE_STALE",
+            409,
+            "The effective Creature classes.2da or spells.2da source changed.",
+          );
+        case "target_row_missing":
+        case "target_level_mismatch":
+          throw compilerError(
+            "AREA_UPDATE_OBJECT_MUTATION_INVALID",
+            422,
+            "The requested Creature class spell is not admitted at the retained level.",
+            ["creature:ClassList:spell_replacement:not_admitted"],
           );
       }
     }
@@ -4676,6 +4975,31 @@ function parseDynamicItemDependencyBaseItem(dependency: Readonly<{
 
 function elapsedMilliseconds(startedAt: number): number {
   return Math.max(0, Date.now() - startedAt);
+}
+
+function changedVariableEntryCount(
+  expectedEntries: readonly Readonly<{
+    name: string;
+    type: "int" | "float" | "string";
+    value: number | string;
+  }>[],
+  entries: readonly Readonly<{
+    name: string;
+    type: "int" | "float" | "string";
+    value: number | string;
+  }>[],
+): number {
+  const comparedLength = Math.max(expectedEntries.length, entries.length);
+  let changed = 0;
+  for (let index = 0; index < comparedLength; index += 1) {
+    const expected = expectedEntries[index];
+    const target = entries[index];
+    if (!expected || !target || expected.name !== target.name ||
+      expected.type !== target.type || !Object.is(expected.value, target.value)) {
+      changed += 1;
+    }
+  }
+  return changed;
 }
 
 function errorMessage(error: unknown): string {

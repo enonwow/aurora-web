@@ -42,6 +42,7 @@ runtime-cache/
 .codex-tmp-*
 
 # Repository-local generated workspaces and runner output
+/.tmp/
 /output/
 /.playwright-cli/
 /backend/output/
@@ -58,7 +59,7 @@ runtime-cache/
 /backend/pnpm-workspace.yaml
 
 # Accidental REPL/shell scratch files
-/({state
+/([{]state
 /document.querySelector*
 /frontend/k.startsWith*
 
@@ -70,6 +71,7 @@ backend/docs/aurora-reverse/guard-reports/
 frontend/public/aurora-evidence/
 **/*.chrome-profile/
 **/chrome-profile/
+**/contact-sheet-profile-*/
 backend/.placeable-render-audit*.json
 backend/tmp_*
 backend/*.bin

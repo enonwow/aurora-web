@@ -31,6 +31,19 @@ Read live files from that root; do not copy their content into another project.
   `aurora-toolset-fast-module-proof-runner-standard.md`
 - Proof capture:
   `proof-capture-safety-contract-2026-07-10.md`
+- Background NWN observation without bringing it above other windows:
+  `aur-s07-runtime-execution-standard.md`, section
+  `Discriminated per-window observation`. Occlusion and minimization are
+  distinct: select the authorized existing PrintWindow entrypoint for an
+  occluded window; restore an iconic window only through its separately
+  authorized no-activation transition. Do not assume the configured MCP uses
+  this method or silently replace physical proof with per-window observation.
+  For long background observation while the user works in other windows,
+  follow that standard's explicit ambient-window observation policy. Sampled
+  foreground/predecessor changes are observations with an unverified cause,
+  not permission to change window order or evidence of globally stable UI.
+  Keep exact NWN identity, geometry, monitor and modal guards; do not infer
+  the opt-in policy from a successful strict capture or an old MCP catalog.
 
 All relative document names above live under
 `backend/docs/aurora-reverse`.

@@ -17,6 +17,8 @@ import {
   inspectAreaGitGicPair,
   mutateExistingAreaObjectsInGitGic,
 } from "../../src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer";
+import { fingerprintAreaCreatureClassListField } from
+  "../../src/modules/areas/adapters/outbound/blob/area-creature-class-list-gff";
 import { hashAreaStoreConstructionDependencies } from
   "../../src/modules/areas/domain/area-store-construction-profile";
 import {
@@ -65,6 +67,156 @@ const MODULE_ID = "workspace:integration";
 const AREA = "crypt01";
 
 describe("Area Update atomic publication integration", () => {
+  it("atomically reorders retained Creature class spell entries and preserves all companions", async () => {
+    const harness = await createHarness({ creatureClassSpellReorderMutation: true });
+
+    const result = await harness.coordinator.execute({
+      actorId: "admin-1",
+      idempotencyKey: "update-creature-class-spell-reorder-integration-1",
+      ifMatchHeader: `"${harness.baselineRevision}"`,
+      command: harness.command,
+      commandHash: harness.commandHash,
+    });
+
+    const head = await harness.repository.readHead(MODULE_ID);
+    const manifest = await harness.repository.readManifest(head!.manifestKey);
+    const read = async (logicalKey: string) => {
+      const descriptor = manifest!.objects.find((entry) => entry.logicalKey === logicalKey)!;
+      return (await harness.repository.readContent(descriptor.contentKey))!.bytes;
+    };
+    const git = parseRawGffDocument(await read(`${AREA}.git`));
+    const creatures = git?.fields.find((field) => field.label === "Creature List");
+    expect(creatures?.type).toBe("list");
+    if (!creatures || creatures.type !== "list") return;
+    const classList = creatures.value[0]?.fields.find((field) => field.label === "ClassList");
+    expect(classList?.type).toBe("list");
+    if (!classList || classList.type !== "list") return;
+    const sourceClassList = creatureClassListFromGit(
+      harness.baselineContents[`${AREA}.git`],
+    );
+    const sourceFirstClass = sourceClassList.value[0]!;
+    const sourceKnownList = sourceFirstClass.fields.find((field) => field.label === "KnownList0");
+    expect(sourceKnownList?.type).toBe("list");
+    if (!sourceKnownList || sourceKnownList.type !== "list") return;
+    const persistedFirstClass = classList.value[0]!;
+    expect(persistedFirstClass.fields.find((field) => field.label === "KnownList0"))
+      .toEqual({
+        ...sourceKnownList,
+        value: [sourceKnownList.value[1], sourceKnownList.value[0]],
+      });
+    expect(persistedFirstClass.fields.filter((field) => field.label !== "KnownList0")).toEqual(
+      sourceFirstClass.fields.filter((field) => field.label !== "KnownList0"),
+    );
+    expect(classList.value[1]).toEqual(sourceClassList.value[1]);
+    expect(await read(`${AREA}.gic`)).toEqual(harness.baselineContents[`${AREA}.gic`]);
+    expect(await read("module.ifo")).toEqual(harness.baselineContents["module.ifo"]);
+    expect(result.receipt).toMatchObject({
+      readbackStatus: "verified",
+      objectMutation: {
+        propertyUpdatedCounts: expect.objectContaining({ creature: 1 }),
+        totalPropertyUpdated: 1,
+      },
+    });
+  });
+
+  it("atomically removes one retained Creature class spell entry and preserves all companions", async () => {
+    const harness = await createHarness({ creatureClassSpellRemovalMutation: true });
+
+    const result = await harness.coordinator.execute({
+      actorId: "admin-1",
+      idempotencyKey: "update-creature-class-spell-removal-integration-1",
+      ifMatchHeader: `"${harness.baselineRevision}"`,
+      command: harness.command,
+      commandHash: harness.commandHash,
+    });
+
+    const head = await harness.repository.readHead(MODULE_ID);
+    const manifest = await harness.repository.readManifest(head!.manifestKey);
+    const read = async (logicalKey: string) => {
+      const descriptor = manifest!.objects.find((entry) => entry.logicalKey === logicalKey)!;
+      return (await harness.repository.readContent(descriptor.contentKey))!.bytes;
+    };
+    const git = parseRawGffDocument(await read(`${AREA}.git`));
+    const creatures = git?.fields.find((field) => field.label === "Creature List");
+    expect(creatures?.type).toBe("list");
+    if (!creatures || creatures.type !== "list") return;
+    const classList = creatures.value[0]?.fields.find((field) => field.label === "ClassList");
+    expect(classList?.type).toBe("list");
+    if (!classList || classList.type !== "list") return;
+    const sourceClassList = creatureClassListFromGit(
+      harness.baselineContents[`${AREA}.git`],
+    );
+    const sourceFirstClass = sourceClassList.value[0]!;
+    const sourceKnownList = sourceFirstClass.fields.find((field) => field.label === "KnownList0");
+    expect(sourceKnownList?.type).toBe("list");
+    if (!sourceKnownList || sourceKnownList.type !== "list") return;
+    const persistedFirstClass = classList.value[0]!;
+    const persistedKnownList = persistedFirstClass.fields.find(
+      (field) => field.label === "KnownList0",
+    );
+    expect(persistedKnownList).toEqual({
+      ...sourceKnownList,
+      value: [sourceKnownList.value[1]],
+    });
+    expect(persistedFirstClass.fields.filter((field) => field.label !== "KnownList0")).toEqual(
+      sourceFirstClass.fields.filter((field) => field.label !== "KnownList0"),
+    );
+    expect(classList.value[1]).toEqual(sourceClassList.value[1]);
+    expect(await read(`${AREA}.gic`)).toEqual(harness.baselineContents[`${AREA}.gic`]);
+    expect(await read("module.ifo")).toEqual(harness.baselineContents["module.ifo"]);
+    expect(result.receipt).toMatchObject({
+      readbackStatus: "verified",
+      objectMutation: {
+        propertyUpdatedCounts: expect.objectContaining({ creature: 1 }),
+        totalPropertyUpdated: 1,
+      },
+    });
+  });
+
+  it("atomically clears one retained Creature class spell list and preserves all companions", async () => {
+    const harness = await createHarness({ creatureClassSpellClearMutation: true });
+
+    const result = await harness.coordinator.execute({
+      actorId: "admin-1",
+      idempotencyKey: "update-creature-class-spell-clear-integration-1",
+      ifMatchHeader: `"${harness.baselineRevision}"`,
+      command: harness.command,
+      commandHash: harness.commandHash,
+    });
+
+    const head = await harness.repository.readHead(MODULE_ID);
+    const manifest = await harness.repository.readManifest(head!.manifestKey);
+    const read = async (logicalKey: string) => {
+      const descriptor = manifest!.objects.find((entry) => entry.logicalKey === logicalKey)!;
+      return (await harness.repository.readContent(descriptor.contentKey))!.bytes;
+    };
+    const git = parseRawGffDocument(await read(`${AREA}.git`));
+    const creatures = git?.fields.find((field) => field.label === "Creature List");
+    expect(creatures?.type).toBe("list");
+    if (!creatures || creatures.type !== "list") return;
+    const classList = creatures.value[0]?.fields.find((field) => field.label === "ClassList");
+    expect(classList?.type).toBe("list");
+    if (!classList || classList.type !== "list") return;
+    expect(classList.value[0]?.fields).toEqual([
+      { label: "Class", type: "int", value: 4 },
+      { label: "ClassLevel", type: "short", value: 3 },
+      { label: "Opaque", type: "cexostring", value: "preserve" },
+    ]);
+    const sourceClassList = creatureClassListFromGit(
+      harness.baselineContents[`${AREA}.git`],
+    );
+    expect(classList.value[1]).toEqual(sourceClassList.value[1]);
+    expect(await read(`${AREA}.gic`)).toEqual(harness.baselineContents[`${AREA}.gic`]);
+    expect(await read("module.ifo")).toEqual(harness.baselineContents["module.ifo"]);
+    expect(result.receipt).toMatchObject({
+      readbackStatus: "verified",
+      objectMutation: {
+        propertyUpdatedCounts: expect.objectContaining({ creature: 1 }),
+        totalPropertyUpdated: 1,
+      },
+    });
+  });
+
   it("publishes one ARE successor, preserves companions, verifies readback, and replays without mutation", async () => {
     const harness = await createHarness();
 
@@ -1232,7 +1384,7 @@ describe("Area Update atomic publication integration", () => {
     });
   });
 
-  it("atomically publishes exact retained Creature names while preserving GIC and IFO bytes", async () => {
+  it("atomically publishes all complete ordered Creature localized-string lists while preserving GIC and IFO bytes", async () => {
     const harness = await createHarness({ creatureLocalizedStringMutation: true });
 
     const result = await harness.coordinator.execute({
@@ -1256,14 +1408,20 @@ describe("Area Update atomic publication integration", () => {
     const creature = creatureList?.type === "list" ? creatureList.value[0] : undefined;
 
     expect(creature?.fields.filter(
-      (field) => field.label === "FirstName" || field.label === "LastName",
+      (field) => field.label === "FirstName" || field.label === "LastName" ||
+        field.label === "Description",
     )).toEqual([
       {
         label: "FirstName",
         type: "cexolocstring",
         value: {
           strRef: 0xffff_ffff,
-          entries: [{ languageId: 0, text: "  Captain  " }],
+          entries: [
+            { languageId: 10, text: "Kapitan" },
+            { languageId: 0, text: "  Captain  " },
+            { languageId: 42, text: "Retained edited" },
+            { languageId: 2, text: "Capitaine" },
+          ],
         },
       },
       {
@@ -1273,6 +1431,11 @@ describe("Area Update atomic publication integration", () => {
           strRef: 0xffff_ffff,
           entries: [{ languageId: 0, text: "Aribeth" }],
         },
+      },
+      {
+        label: "Description",
+        type: "cexolocstring",
+        value: { strRef: 0xffff_ffff, entries: [] },
       },
     ]);
     expect(git).not.toEqual(harness.baselineContents[`${AREA}.git`]);
@@ -1731,6 +1894,123 @@ describe("Area Update atomic publication integration", () => {
       objectMutation: {
         totalPropertyUpdated: 1,
         propertyUpdatedCounts: { placeable: 1 },
+      },
+    });
+  });
+
+  it("atomically publishes complete ordered Placeable localized-string lists with verified readback", async () => {
+    const harness = await createHarness({ placeableLocalizedStringMutation: true });
+
+    const result = await harness.coordinator.execute({
+      actorId: "admin-1",
+      idempotencyKey: "update-placeable-ordered-localized-strings-integration-1",
+      ifMatchHeader: `"${harness.baselineRevision}"`,
+      command: harness.command,
+      commandHash: harness.commandHash,
+    });
+
+    const head = await harness.repository.readHead(MODULE_ID);
+    const manifest = await harness.repository.readManifest(head!.manifestKey);
+    const read = async (logicalKey: string) => {
+      const descriptor = manifest!.objects.find((entry) => entry.logicalKey === logicalKey)!;
+      return (await harness.repository.readContent(descriptor.contentKey))!.bytes;
+    };
+    const git = await read(`${AREA}.git`);
+    const placeableList = parseRawGffDocument(git)!.fields.find(
+      (field) => field.label === "Placeable List",
+    );
+    const placeableFields = placeableList?.type === "list"
+      ? placeableList.value[0]?.fields
+      : undefined;
+    expect(placeableFields?.find((field) => field.label === "LocName")).toEqual({
+      label: "LocName",
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 10, text: "Kufer" },
+          { languageId: 0, text: "Chest 2" },
+          { languageId: 42, text: "Retained edited" },
+          { languageId: 2, text: "Coffre" },
+        ],
+      },
+    });
+    expect(placeableFields?.find((field) => field.label === "Description")).toEqual({
+      label: "Description",
+      type: "cexolocstring",
+      value: { strRef: 0xffff_ffff, entries: [] },
+    });
+    expect(await read(`${AREA}.gic`)).toEqual(harness.baselineContents[`${AREA}.gic`]);
+    expect(await read("module.ifo")).toEqual(harness.baselineContents["module.ifo"]);
+    expect(result.receipt).toMatchObject({
+      readbackStatus: "verified",
+      objectMutation: {
+        totalPropertyUpdated: 1,
+        propertyUpdatedCounts: { placeable: 1 },
+      },
+    });
+  });
+
+  it("atomically publishes all complete ordered Item localized-string lists with verified readback", async () => {
+    const harness = await createHarness({ itemLocalizedStringMutation: true });
+
+    const result = await harness.coordinator.execute({
+      actorId: "admin-1",
+      idempotencyKey: "update-item-ordered-localized-strings-integration-1",
+      ifMatchHeader: `"${harness.baselineRevision}"`,
+      command: harness.command,
+      commandHash: harness.commandHash,
+    });
+
+    const head = await harness.repository.readHead(MODULE_ID);
+    const manifest = await harness.repository.readManifest(head!.manifestKey);
+    const read = async (logicalKey: string) => {
+      const descriptor = manifest!.objects.find((entry) => entry.logicalKey === logicalKey)!;
+      return (await harness.repository.readContent(descriptor.contentKey))!.bytes;
+    };
+    const git = await read(`${AREA}.git`);
+    const itemList = parseRawGffDocument(git)!.fields.find(
+      (field) => field.label === "List",
+    );
+    const itemFields = itemList?.type === "list"
+      ? itemList.value[0]?.fields
+      : undefined;
+    expect(itemFields?.find((field) => field.label === "LocalizedName")).toEqual({
+      label: "LocalizedName",
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 10, text: "Miecz 2" },
+          { languageId: 0, text: "Sword 2" },
+          { languageId: 42, text: "Retained edited" },
+          { languageId: 2, text: "Schwert" },
+        ],
+      },
+    });
+    expect(itemFields?.find((field) => field.label === "Description")).toEqual({
+      label: "Description",
+      type: "cexolocstring",
+      value: { strRef: 0xffff_ffff, entries: [] },
+    });
+    expect(itemFields?.find((field) => field.label === "DescIdentified")).toEqual({
+      label: "DescIdentified",
+      type: "cexolocstring",
+      value: {
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 10, text: "Rozpoznany 2" },
+          { languageId: 0, text: "Known 2" },
+        ],
+      },
+    });
+    expect(await read(`${AREA}.gic`)).toEqual(harness.baselineContents[`${AREA}.gic`]);
+    expect(await read("module.ifo")).toEqual(harness.baselineContents["module.ifo"]);
+    expect(result.receipt).toMatchObject({
+      readbackStatus: "verified",
+      objectMutation: {
+        totalPropertyUpdated: 1,
+        propertyUpdatedCounts: { item: 1 },
       },
     });
   });
@@ -2899,7 +3179,7 @@ describe("Area Update atomic publication integration", () => {
     });
   });
 
-  it("atomically publishes exact retained Trigger Tag, LocalizedName, and paired-GIC Comment while preserving IFO bytes", async () => {
+  it("atomically publishes exact retained Trigger identity, core and trap properties, transition storage, VarTable, and paired-GIC Comment while preserving IFO", async () => {
     const harness = await createHarness({ triggerTagMutation: true });
 
     const result = await harness.coordinator.execute({
@@ -2927,6 +3207,21 @@ describe("Area Update atomic publication integration", () => {
     const localizedName = triggerList?.type === "list"
       ? triggerList.value[0]?.fields.find((field) => field.label === "LocalizedName")
       : undefined;
+    const linkedTo = triggerList?.type === "list"
+      ? triggerList.value[0]?.fields.find((field) => field.label === "LinkedTo")
+      : undefined;
+    const linkedToFlags = triggerList?.type === "list"
+      ? triggerList.value[0]?.fields.find((field) => field.label === "LinkedToFlags")
+      : undefined;
+    const loadScreenId = triggerList?.type === "list"
+      ? triggerList.value[0]?.fields.find((field) => field.label === "LoadScreenID")
+      : undefined;
+    const variableTable = triggerList?.type === "list"
+      ? triggerList.value[0]?.fields.find((field) => field.label === "VarTable")
+      : undefined;
+    const triggerFields = triggerList?.type === "list"
+      ? triggerList.value[0]?.fields
+      : undefined;
     const gicTriggerList = parseRawGffDocument(gic)!.fields.find(
       (field) => field.label === "TriggerList",
     );
@@ -2947,6 +3242,53 @@ describe("Area Update atomic publication integration", () => {
         entries: [{ languageId: 0, text: "Inner Gate Trigger" }],
       },
     });
+    expect(linkedTo).toEqual({
+      label: "LinkedTo",
+      type: "cexostring",
+      value: "crypt_exit",
+    });
+    expect(linkedToFlags).toEqual({
+      label: "LinkedToFlags",
+      type: "byte",
+      value: 4,
+    });
+    expect(loadScreenId).toEqual({
+      label: "LoadScreenID",
+      type: "word",
+      value: 321,
+    });
+    expect(variableTable).toEqual({
+      label: "VarTable",
+      type: "list",
+      value: [
+        { typeId: 0, fields: [
+          { label: "Name", type: "cexostring", value: "Counter" },
+          { label: "Type", type: "dword", value: 1 },
+          { label: "Value", type: "int", value: 2 },
+        ] },
+        { typeId: 0, fields: [
+          { label: "Name", type: "cexostring", value: "State" },
+          { label: "Type", type: "dword", value: 3 },
+          { label: "Value", type: "cexostring", value: "armed" },
+        ] },
+      ],
+    });
+    expect(triggerFields).toEqual(expect.arrayContaining([
+      { label: "AutoRemoveKey", type: "byte", value: 1 },
+      { label: "Faction", type: "dword", value: 2 },
+      { label: "Cursor", type: "byte", value: 3 },
+      { label: "HighlightHeight", type: "float", value: 2.5 },
+      { label: "KeyName", type: "cexostring", value: "target_key" },
+      { label: "PortraitId", type: "word", value: 4 },
+      { label: "Type", type: "int", value: -1 },
+      { label: "TrapDetectable", type: "byte", value: 2 },
+      { label: "TrapDetectDC", type: "byte", value: 33 },
+      { label: "TrapDisarmable", type: "byte", value: 3 },
+      { label: "DisarmDC", type: "byte", value: 44 },
+      { label: "TrapFlag", type: "byte", value: 4 },
+      { label: "TrapOneShot", type: "byte", value: 5 },
+      { label: "TrapType", type: "byte", value: 6 },
+    ]));
     expect(editorComment).toEqual({
       label: "Comment",
       type: "cexostring",
@@ -3966,6 +4308,9 @@ async function createHarness(options: Readonly<{
   creatureScriptResRefsMutation?: boolean;
   creatureLocalizedStringMutation?: boolean;
   creatureEditorCommentMutation?: boolean;
+  creatureClassSpellClearMutation?: boolean;
+  creatureClassSpellRemovalMutation?: boolean;
+  creatureClassSpellReorderMutation?: boolean;
   placeableFactionMutation?: boolean;
   placeablePortraitMutation?: boolean;
   placeableTemplateResRefMutation?: boolean;
@@ -3977,6 +4322,8 @@ async function createHarness(options: Readonly<{
   placeablePlotHasInventoryMutation?: boolean;
   placeableDurabilitySaveBytesMutation?: boolean;
   placeableHitPointsMutation?: boolean;
+  placeableLocalizedStringMutation?: boolean;
+  itemLocalizedStringMutation?: boolean;
   placeableEditorCommentMutation?: boolean;
   storeEditorCommentMutation?: boolean;
   encounterTransform?: boolean;
@@ -4053,6 +4400,10 @@ async function createHarness(options: Readonly<{
     includeCreatureTemplateResRef: options.creatureTemplateResRefMutation,
     includeCreatureSpecialIdentityStrings: options.creatureSpecialIdentityStringsMutation,
     includeCreatureScriptResRefs: options.creatureScriptResRefsMutation,
+    includeCreatureLocalizedStrings: options.creatureLocalizedStringMutation,
+    includeCreatureClassSpellLists: options.creatureClassSpellClearMutation
+      || options.creatureClassSpellRemovalMutation
+      || options.creatureClassSpellReorderMutation,
     includeEncounter: options.encounterTransform
       || options.encounterTagMutation
       || options.encounterActiveMutation
@@ -4079,6 +4430,7 @@ async function createHarness(options: Readonly<{
       || options.placeablePlotHasInventoryMutation
       || options.placeableDurabilitySaveBytesMutation
       || options.placeableHitPointsMutation
+      || options.placeableLocalizedStringMutation
       || options.placeableEditorCommentMutation,
     includePlaceableBodyBag: options.placeableBodyBagMutation,
     includePlaceableFaction: options.placeableFactionMutation,
@@ -4091,6 +4443,8 @@ async function createHarness(options: Readonly<{
     includePlaceablePlotHasInventory: options.placeablePlotHasInventoryMutation,
     includePlaceableDurabilitySaveBytes: options.placeableDurabilitySaveBytesMutation,
     includePlaceableHitPoints: options.placeableHitPointsMutation,
+    includePlaceableLocalizedStrings: options.placeableLocalizedStringMutation,
+    includeItemLocalizedStrings: options.itemLocalizedStringMutation,
     includeSound: options.soundTransform,
     includeStore: options.storeTransform || options.storeEditorCommentMutation,
     includeTrigger: options.triggerTransform || options.triggerPolygonMutation || options.triggerTagMutation,
@@ -4173,7 +4527,7 @@ async function createHarness(options: Readonly<{
       ? { fogClipDistance: 120, windPower: 2 }
       : { fogClipDistance: 45, windPower: 0 },
   );
-  const pairMutation = options.objectDeletion || options.creatureTagMutation || options.creatureConversationMutation || options.creatureInterruptableMutation || options.creatureAdvancedFlagsMutation || options.creatureDeathRemainsMutation || options.creatureAppearanceMutation || options.creatureGenderMutation || options.creaturePortraitMutation || options.creatureChallengeRatingMutation || options.creatureAbilityScoresMutation || options.creatureHitPointsMutation || options.creatureNaturalArmorClassMutation || options.creatureSavingThrowBonusesMutation || options.creatureAlignmentMutation || options.creatureFactionMutation || options.creatureTemplateResRefMutation || options.creatureSpecialIdentityStringsMutation || options.creatureScriptResRefsMutation || options.creatureLocalizedStringMutation || options.creatureEditorCommentMutation || options.placeableFactionMutation || options.placeablePortraitMutation || options.placeableTemplateResRefMutation || options.placeableBodyBagMutation || options.placeableTrapTypeMutation || options.placeableAnimationStateMutation || options.placeableConversationInterruptableMutation || options.placeableStaticUseableMutation || options.placeablePlotHasInventoryMutation || options.placeableDurabilitySaveBytesMutation || options.placeableHitPointsMutation || options.placeableEditorCommentMutation || options.storeEditorCommentMutation || options.doorTransitionMutation || options.encounterTransform || options.encounterTagMutation || options.encounterActiveMutation || options.encounterPlayerOnlyMutation || options.encounterResetMutation || options.encounterResetTimeMutation || options.encounterSpawnOptionMutation || options.encounterRespawnsMutation || options.encounterCreatureCountsMutation || options.encounterFactionMutation || options.encounterDifficultyMutation || options.encounterEditorCommentMutation || options.encounterCreatureListMutation || options.encounterSpawnPointListMutation || options.waypointTagMutation || options.waypointTemplateResRefMutation || options.waypointLocalizedNameMutation || options.waypointDescriptionMutation || options.waypointMapNoteMutation || options.waypointAppearanceMutation || options.waypointVariableTableMutation || options.waypointEditorCommentMutation || options.objectTransform || options.itemTransform ||
+  const pairMutation = options.objectDeletion || options.creatureTagMutation || options.creatureConversationMutation || options.creatureInterruptableMutation || options.creatureAdvancedFlagsMutation || options.creatureDeathRemainsMutation || options.creatureAppearanceMutation || options.creatureGenderMutation || options.creaturePortraitMutation || options.creatureChallengeRatingMutation || options.creatureAbilityScoresMutation || options.creatureHitPointsMutation || options.creatureNaturalArmorClassMutation || options.creatureSavingThrowBonusesMutation || options.creatureAlignmentMutation || options.creatureFactionMutation || options.creatureTemplateResRefMutation || options.creatureSpecialIdentityStringsMutation || options.creatureScriptResRefsMutation || options.creatureLocalizedStringMutation || options.creatureEditorCommentMutation || options.creatureClassSpellClearMutation || options.creatureClassSpellRemovalMutation || options.creatureClassSpellReorderMutation || options.placeableFactionMutation || options.placeablePortraitMutation || options.placeableTemplateResRefMutation || options.placeableBodyBagMutation || options.placeableTrapTypeMutation || options.placeableAnimationStateMutation || options.placeableConversationInterruptableMutation || options.placeableStaticUseableMutation || options.placeablePlotHasInventoryMutation || options.placeableDurabilitySaveBytesMutation || options.placeableHitPointsMutation || options.placeableLocalizedStringMutation || options.itemLocalizedStringMutation || options.placeableEditorCommentMutation || options.storeEditorCommentMutation || options.doorTransitionMutation || options.encounterTransform || options.encounterTagMutation || options.encounterActiveMutation || options.encounterPlayerOnlyMutation || options.encounterResetMutation || options.encounterResetTimeMutation || options.encounterSpawnOptionMutation || options.encounterRespawnsMutation || options.encounterCreatureCountsMutation || options.encounterFactionMutation || options.encounterDifficultyMutation || options.encounterEditorCommentMutation || options.encounterCreatureListMutation || options.encounterSpawnPointListMutation || options.waypointTagMutation || options.waypointTemplateResRefMutation || options.waypointLocalizedNameMutation || options.waypointDescriptionMutation || options.waypointMapNoteMutation || options.waypointAppearanceMutation || options.waypointVariableTableMutation || options.waypointEditorCommentMutation || options.objectTransform || options.itemTransform ||
     options.placeableTransform || options.soundTransform || options.storeTransform || options.triggerTransform || options.triggerPolygonMutation || options.triggerTagMutation || options.waypointTransform || options.waypointAddition || options.dynamicWaypointAddition || options.soundAddition || options.placeableAddition || options.dynamicPlaceableAddition || options.itemAddition || options.creatureAddition || options.doorAddition || options.storeAddition || options.dynamicStoreAddition || options.triggerAddition || options.encounterAddition || options.dynamicEncounterAddition
     ? mutateExistingAreaObjectsInGitGic({
         sourceGit: baselineContents[`${AREA}.git`],
@@ -4384,8 +4738,38 @@ async function createHarness(options: Readonly<{
                 kind: "creature",
                 sourceIndex: 0,
                 localizedStrings: [
-                  { field: "FirstName", expectedValue: "Guard", value: "  Captain  " },
-                  { field: "LastName", expectedValue: "", value: "Aribeth" },
+                  {
+                    field: "FirstName",
+                    expectedProfile: "multi_entry_inline_ascii",
+                    expectedValue: "Guard",
+                    expectedEntries: [
+                      { languageId: 42, text: "Retained" },
+                      { languageId: 0, text: "Guard" },
+                    ],
+                    value: "  Captain  ",
+                    valueEntries: [
+                      { languageId: 10, text: "Kapitan" },
+                      { languageId: 0, text: "  Captain  " },
+                      { languageId: 42, text: "Retained edited" },
+                      { languageId: 2, text: "Capitaine" },
+                    ],
+                  },
+                  {
+                    field: "LastName",
+                    expectedProfile: "empty_inline_ascii",
+                    expectedValue: "",
+                    expectedEntries: [],
+                    value: "Aribeth",
+                    valueEntries: [{ languageId: 0, text: "Aribeth" }],
+                  },
+                  {
+                    field: "Description",
+                    expectedProfile: "simple_inline_ascii",
+                    expectedValue: "Old description",
+                    expectedEntries: [{ languageId: 0, text: "Old description" }],
+                    value: "",
+                    valueEntries: [],
+                  },
                 ],
               }]
           : options.creatureEditorCommentMutation
@@ -4397,6 +4781,58 @@ async function createHarness(options: Readonly<{
                   value: "  Guard route\r\ne\u0301  ",
                 },
               }]
+            : options.creatureClassSpellReorderMutation
+              ? [{
+                  kind: "creature",
+                  sourceIndex: 0,
+                  classSpellReorder: {
+                    expectedClassIds: [4, 7],
+                    expectedLevels: [3, 2],
+                    classListGraphSha256: fingerprintAreaCreatureClassListField(
+                      creatureClassListFromGit(baselineContents[`${AREA}.git`]),
+                    ),
+                    reorders: [{
+                      classSlotIndex: 0,
+                      listKind: "known",
+                      spellLevel: 0,
+                      entryOrder: [1, 0],
+                    }],
+                    spellReorderConfirmed: true,
+                  },
+                }]
+            : options.creatureClassSpellRemovalMutation
+              ? [{
+                  kind: "creature",
+                  sourceIndex: 0,
+                  classSpellRemoval: {
+                    expectedClassIds: [4, 7],
+                    expectedLevels: [3, 2],
+                    classListGraphSha256: fingerprintAreaCreatureClassListField(
+                      creatureClassListFromGit(baselineContents[`${AREA}.git`]),
+                    ),
+                    targets: [{
+                      classSlotIndex: 0,
+                      listKind: "known",
+                      spellLevel: 0,
+                      entryIndex: 0,
+                    }],
+                    destructiveSpellRemovalConfirmed: true,
+                  },
+                }]
+              : options.creatureClassSpellClearMutation
+              ? [{
+                  kind: "creature",
+                  sourceIndex: 0,
+                  classSpellClear: {
+                    expectedClassIds: [4, 7],
+                    expectedLevels: [3, 2],
+                    classListGraphSha256: fingerprintAreaCreatureClassListField(
+                      creatureClassListFromGit(baselineContents[`${AREA}.git`]),
+                    ),
+                    classSlotIndices: [0],
+                    destructiveSpellClearConfirmed: true,
+                  },
+                }]
             : options.placeableFactionMutation
               ? [{
                   kind: "placeable",
@@ -4503,6 +4939,90 @@ async function createHarness(options: Readonly<{
                                         currentHitPoints: 90,
                                       },
                                     }]
+                                  : options.placeableLocalizedStringMutation
+                                    ? [{
+                                        kind: "placeable",
+                                        sourceIndex: 0,
+                                        localizedStrings: [
+                                          {
+                                            field: "LocName",
+                                            expectedProfile: "multi_entry_inline_ascii",
+                                            expectedValue: "Chest",
+                                            expectedEntries: [
+                                              { languageId: 42, text: "Retained" },
+                                              { languageId: 0, text: "Chest" },
+                                              { languageId: 10, text: "Skrzynia" },
+                                            ],
+                                            value: "Chest 2",
+                                            valueEntries: [
+                                              { languageId: 10, text: "Kufer" },
+                                              { languageId: 0, text: "Chest 2" },
+                                              { languageId: 42, text: "Retained edited" },
+                                              { languageId: 2, text: "Coffre" },
+                                            ],
+                                          },
+                                          {
+                                            field: "Description",
+                                            expectedProfile: "multi_entry_inline_ascii",
+                                            expectedValue: "Storage",
+                                            expectedEntries: [
+                                              { languageId: 0, text: "Storage" },
+                                              { languageId: 11, text: "Opis" },
+                                            ],
+                                            value: "",
+                                            valueEntries: [],
+                                          },
+                                        ],
+                                      }]
+                                  : options.itemLocalizedStringMutation
+                                    ? [{
+                                        kind: "item",
+                                        sourceIndex: 0,
+                                        localizedStrings: [
+                                          {
+                                            field: "LocalizedName",
+                                            expectedProfile: "multi_entry_inline_ascii",
+                                            expectedValue: "Sword",
+                                            expectedEntries: [
+                                              { languageId: 42, text: "Retained" },
+                                              { languageId: 0, text: "Sword" },
+                                              { languageId: 10, text: "Miecz" },
+                                            ],
+                                            value: "Sword 2",
+                                            valueEntries: [
+                                              { languageId: 10, text: "Miecz 2" },
+                                              { languageId: 0, text: "Sword 2" },
+                                              { languageId: 42, text: "Retained edited" },
+                                              { languageId: 2, text: "Schwert" },
+                                            ],
+                                          },
+                                          {
+                                            field: "Description",
+                                            expectedProfile: "multi_entry_inline_ascii",
+                                            expectedValue: "Unknown blade",
+                                            expectedEntries: [
+                                              { languageId: 0, text: "Unknown blade" },
+                                              { languageId: 11, text: "Opis" },
+                                            ],
+                                            value: "",
+                                            valueEntries: [],
+                                          },
+                                          {
+                                            field: "DescIdentified",
+                                            expectedProfile: "multi_entry_inline_ascii",
+                                            expectedValue: "Known",
+                                            expectedEntries: [
+                                              { languageId: 0, text: "Known" },
+                                              { languageId: 10, text: "Rozpoznany" },
+                                            ],
+                                            value: "Known 2",
+                                            valueEntries: [
+                                              { languageId: 10, text: "Rozpoznany 2" },
+                                              { languageId: 0, text: "Known 2" },
+                                            ],
+                                          },
+                                        ],
+                                      }]
                                   : options.placeableEditorCommentMutation
                                     ? [{
                                         kind: "placeable",
@@ -4536,6 +5056,65 @@ async function createHarness(options: Readonly<{
                                              editorComment: {
                                                expectedValue: "TriggerList",
                                                value: "  West gate\r\ne\u0301  ",
+                                             },
+                                             transitionStorage: {
+                                               expectedValue: {
+                                                 linkedTo: "east_gate",
+                                                 linkedToFlags: 2,
+                                                 loadScreenId: 7,
+                                               },
+                                               value: {
+                                                 linkedTo: "crypt_exit",
+                                                 linkedToFlags: 4,
+                                                 loadScreenId: 321,
+                                               },
+                                             },
+                                             coreProperties: {
+                                               expectedValue: {
+                                                 autoRemoveKey: 0,
+                                                 factionId: 1,
+                                                 cursorId: 2,
+                                                 highlightHeight: 1.5,
+                                                 keyName: "source_key",
+                                                 portraitId: 3,
+                                                 triggerType: 0,
+                                               },
+                                               value: {
+                                                 autoRemoveKey: 1,
+                                                 factionId: 2,
+                                                 cursorId: 3,
+                                                 highlightHeight: 2.5,
+                                                 keyName: "target_key",
+                                                 portraitId: 4,
+                                                 triggerType: -1,
+                                               },
+                                             },
+                                             trapProperties: {
+                                               expectedValue: {
+                                                 trapDetectable: 1,
+                                                 trapDetectDc: 11,
+                                                 trapDisarmable: 0,
+                                                 disarmDc: 22,
+                                                 trapFlag: 1,
+                                                 trapOneShot: 0,
+                                                 trapType: 5,
+                                               },
+                                               value: {
+                                                 trapDetectable: 2,
+                                                 trapDetectDc: 33,
+                                                 trapDisarmable: 3,
+                                                 disarmDc: 44,
+                                                 trapFlag: 4,
+                                                 trapOneShot: 5,
+                                                 trapType: 6,
+                                               },
+                                             },
+                                             variables: {
+                                               expectedEntries: [],
+                                               entries: [
+                                                 { name: "Counter", type: "int", value: 2 },
+                                                 { name: "State", type: "string", value: "armed" },
+                                               ],
                                              },
                                              }]
                                          : options.waypointTagMutation
@@ -5089,7 +5668,7 @@ async function createHarness(options: Readonly<{
             totalDeleted: options.objectDeletion ? 1 : 0,
             totalTransformed: options.encounterTransform || options.objectTransform || options.itemTransform || options.placeableTransform ||
               options.soundTransform || options.storeTransform || options.triggerTransform || options.waypointTransform ? 1 : 0,
-            totalPropertyUpdated: options.doorTransitionMutation || options.creatureTagMutation || options.creatureConversationMutation || options.creatureInterruptableMutation || options.creatureAdvancedFlagsMutation || options.creatureDeathRemainsMutation || options.creatureAppearanceMutation || options.creatureGenderMutation || options.creaturePortraitMutation || options.creatureChallengeRatingMutation || options.creatureAbilityScoresMutation || options.creatureHitPointsMutation || options.creatureNaturalArmorClassMutation || options.creatureSavingThrowBonusesMutation || options.creatureAlignmentMutation || options.creatureFactionMutation || options.creatureTemplateResRefMutation || options.creatureSpecialIdentityStringsMutation || options.creatureScriptResRefsMutation || options.creatureLocalizedStringMutation || options.creatureEditorCommentMutation || options.placeableFactionMutation || options.placeablePortraitMutation || options.placeableTemplateResRefMutation || options.placeableBodyBagMutation || options.placeableTrapTypeMutation || options.placeableAnimationStateMutation || options.placeableConversationInterruptableMutation || options.placeableStaticUseableMutation || options.placeablePlotHasInventoryMutation || options.placeableDurabilitySaveBytesMutation || options.placeableHitPointsMutation || options.placeableEditorCommentMutation || options.storeEditorCommentMutation || options.triggerTagMutation || options.waypointTagMutation || options.waypointTemplateResRefMutation || options.waypointLocalizedNameMutation || options.waypointDescriptionMutation || options.waypointMapNoteMutation || options.waypointAppearanceMutation || options.waypointVariableTableMutation || options.waypointEditorCommentMutation || options.encounterTagMutation || options.encounterActiveMutation || options.encounterPlayerOnlyMutation || options.encounterResetMutation || options.encounterRespawnsMutation || options.encounterResetTimeMutation || options.encounterSpawnOptionMutation || options.encounterCreatureCountsMutation || options.encounterFactionMutation || options.encounterDifficultyMutation || options.encounterEditorCommentMutation || options.encounterCreatureListMutation || options.encounterSpawnPointListMutation ? 1 : 0,
+            totalPropertyUpdated: options.doorTransitionMutation || options.creatureTagMutation || options.creatureConversationMutation || options.creatureInterruptableMutation || options.creatureAdvancedFlagsMutation || options.creatureDeathRemainsMutation || options.creatureAppearanceMutation || options.creatureGenderMutation || options.creaturePortraitMutation || options.creatureChallengeRatingMutation || options.creatureAbilityScoresMutation || options.creatureHitPointsMutation || options.creatureNaturalArmorClassMutation || options.creatureSavingThrowBonusesMutation || options.creatureAlignmentMutation || options.creatureFactionMutation || options.creatureTemplateResRefMutation || options.creatureSpecialIdentityStringsMutation || options.creatureScriptResRefsMutation || options.creatureLocalizedStringMutation || options.creatureEditorCommentMutation || options.creatureClassSpellClearMutation || options.creatureClassSpellRemovalMutation || options.creatureClassSpellReorderMutation || options.placeableFactionMutation || options.placeablePortraitMutation || options.placeableTemplateResRefMutation || options.placeableBodyBagMutation || options.placeableTrapTypeMutation || options.placeableAnimationStateMutation || options.placeableConversationInterruptableMutation || options.placeableStaticUseableMutation || options.placeablePlotHasInventoryMutation || options.placeableDurabilitySaveBytesMutation || options.placeableHitPointsMutation || options.placeableLocalizedStringMutation || options.itemLocalizedStringMutation || options.placeableEditorCommentMutation || options.storeEditorCommentMutation || options.triggerTagMutation || options.waypointTagMutation || options.waypointTemplateResRefMutation || options.waypointLocalizedNameMutation || options.waypointDescriptionMutation || options.waypointMapNoteMutation || options.waypointAppearanceMutation || options.waypointVariableTableMutation || options.waypointEditorCommentMutation || options.encounterTagMutation || options.encounterActiveMutation || options.encounterPlayerOnlyMutation || options.encounterResetMutation || options.encounterRespawnsMutation || options.encounterResetTimeMutation || options.encounterSpawnOptionMutation || options.encounterCreatureCountsMutation || options.encounterFactionMutation || options.encounterDifficultyMutation || options.encounterEditorCommentMutation || options.encounterCreatureListMutation || options.encounterSpawnPointListMutation ? 1 : 0,
             totalPolygonUpdated: options.triggerPolygonMutation ? 1 : 0,
             totalAdded: options.creatureAddition || options.doorAddition || options.encounterAddition || options.dynamicEncounterAddition || options.storeAddition || options.dynamicStoreAddition || options.triggerAddition || options.itemAddition || options.placeableAddition || options.dynamicPlaceableAddition || options.waypointAddition || options.dynamicWaypointAddition || options.soundAddition ? 1 : 0,
             blueprintSources: Object.freeze(options.creatureAddition || options.doorAddition || options.encounterAddition || options.dynamicEncounterAddition || options.storeAddition || options.dynamicStoreAddition || options.triggerAddition || options.itemAddition || options.placeableAddition || options.dynamicPlaceableAddition || options.waypointAddition || options.dynamicWaypointAddition || options.soundAddition
@@ -5460,6 +6039,87 @@ function integrationVisualEnvironmentTarget() {
   });
 }
 
+function creatureClassSpellListFixture(): SupportedGffField {
+  return {
+    label: "ClassList",
+    type: "list",
+    value: [
+      {
+        typeId: 2,
+        fields: [
+          { label: "Class", type: "int", value: 4 },
+          { label: "ClassLevel", type: "short", value: 3 },
+          { label: "Opaque", type: "cexostring", value: "preserve" },
+          {
+            label: "KnownList0",
+            type: "list",
+            value: [{
+              typeId: 3,
+              fields: [
+                { label: "Spell", type: "word", value: 42 },
+                { label: "SpellMetaMagic", type: "byte", value: 0 },
+                { label: "SpellFlags", type: "byte", value: 1 },
+              ],
+            }, {
+              typeId: 3,
+              fields: [
+                { label: "Spell", type: "word", value: 43 },
+                { label: "SpellMetaMagic", type: "byte", value: 1 },
+                { label: "SpellFlags", type: "byte", value: 3 },
+                { label: "OpaqueSpell", type: "cexostring", value: "retain" },
+              ],
+            }],
+          },
+          {
+            label: "MemorizedList1",
+            type: "list",
+            value: [{
+              typeId: 3,
+              fields: [
+                { label: "Spell", type: "word", value: 7 },
+                { label: "SpellMetaMagic", type: "byte", value: 0 },
+                { label: "SpellFlags", type: "byte", value: 1 },
+              ],
+            }],
+          },
+        ],
+      },
+      {
+        typeId: 2,
+        fields: [
+          { label: "Class", type: "int", value: 7 },
+          { label: "ClassLevel", type: "short", value: 2 },
+          {
+            label: "MemorizedList0",
+            type: "list",
+            value: [{
+              typeId: 3,
+              fields: [
+                { label: "Spell", type: "word", value: 9 },
+                { label: "SpellMetaMagic", type: "byte", value: 0 },
+                { label: "SpellFlags", type: "byte", value: 1 },
+              ],
+            }],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function creatureClassListFromGit(bytes: Buffer): Extract<SupportedGffField, { type: "list" }> {
+  const document = parseRawGffDocument(bytes);
+  const creatures = document?.fields.find((field) => field.label === "Creature List");
+  if (!creatures || creatures.type !== "list") {
+    throw new Error("Expected integration Creature List.");
+  }
+  const classList = creatures.value[0]?.fields.find((field) => field.label === "ClassList");
+  if (!classList || classList.type !== "list") {
+    throw new Error("Expected integration Creature ClassList.");
+  }
+  return classList;
+}
+
 function objectPair(options: Readonly<{
   includeCreatureConversation?: boolean;
   includeCreatureInterruptable?: boolean;
@@ -5478,6 +6138,8 @@ function objectPair(options: Readonly<{
   includeCreatureTemplateResRef?: boolean;
   includeCreatureSpecialIdentityStrings?: boolean;
   includeCreatureScriptResRefs?: boolean;
+  includeCreatureLocalizedStrings?: boolean;
+  includeCreatureClassSpellLists?: boolean;
   includeDoor?: boolean;
   includeEncounter?: boolean;
   includePlaceable?: boolean;
@@ -5493,6 +6155,8 @@ function objectPair(options: Readonly<{
   includePlaceablePlotHasInventory?: boolean;
   includePlaceableDurabilitySaveBytes?: boolean;
   includePlaceableHitPoints?: boolean;
+  includePlaceableLocalizedStrings?: boolean;
+  includeItemLocalizedStrings?: boolean;
   includeSound?: boolean;
   includeStore?: boolean;
   includeTrigger?: boolean;
@@ -5624,7 +6288,12 @@ function objectPair(options: Readonly<{
                     type: "cexolocstring" as const,
                     value: {
                       strRef: 0xffff_ffff,
-                      entries: [{ languageId: 0, text: "Guard" }],
+                      entries: options.includeCreatureLocalizedStrings
+                        ? [
+                            { languageId: 42, text: "Retained" },
+                            { languageId: 0, text: "Guard" },
+                          ]
+                        : [{ languageId: 0, text: "Guard" }],
                     },
                   },
                   {
@@ -5632,6 +6301,19 @@ function objectPair(options: Readonly<{
                     type: "cexolocstring" as const,
                     value: { strRef: 0xffff_ffff, entries: [] },
                   },
+                  ...(options.includeCreatureLocalizedStrings
+                    ? [{
+                        label: "Description",
+                        type: "cexolocstring" as const,
+                        value: {
+                          strRef: 0xffff_ffff,
+                          entries: [{ languageId: 0, text: "Old description" }],
+                        },
+                      }]
+                    : []),
+                  ...(options.includeCreatureClassSpellLists
+                    ? [creatureClassSpellListFixture()]
+                    : []),
                 ] : []),
                 { label: "Tag", type: "cexostring" as const, value: label },
                 ...(label === "WaypointList" ? [
@@ -5743,11 +6425,66 @@ function objectPair(options: Readonly<{
                       geometryPoint(0, 0, 3.125),
                     ],
                   },
+                  { label: "LinkedTo", type: "cexostring" as const, value: "east_gate" },
+                  { label: "LinkedToFlags", type: "byte" as const, value: 2 },
+                  { label: "LoadScreenID", type: "word" as const, value: 7 },
+                  { label: "AutoRemoveKey", type: "byte" as const, value: 0 },
+                  { label: "Faction", type: "dword" as const, value: 1 },
+                  { label: "Cursor", type: "byte" as const, value: 2 },
+                  { label: "HighlightHeight", type: "float" as const, value: 1.5 },
+                  { label: "KeyName", type: "cexostring" as const, value: "source_key" },
+                  { label: "PortraitId", type: "word" as const, value: 3 },
+                  { label: "Type", type: "int" as const, value: 0 },
+                  { label: "TrapDetectable", type: "byte" as const, value: 1 },
+                  { label: "TrapDetectDC", type: "byte" as const, value: 11 },
+                  { label: "TrapDisarmable", type: "byte" as const, value: 0 },
+                  { label: "DisarmDC", type: "byte" as const, value: 22 },
+                  { label: "TrapFlag", type: "byte" as const, value: 1 },
+                  { label: "TrapOneShot", type: "byte" as const, value: 0 },
+                  { label: "TrapType", type: "byte" as const, value: 5 },
                 ] : label === "Door List" ? [
                   { label: "LinkedTo", type: "cexostring" as const, value: "OLD_DEST" },
                   { label: "LinkedToFlags", type: "byte" as const, value: 1 },
                   { label: "LoadScreenID", type: "word" as const, value: 0 },
                 ] : label === "Creature List" || label === "List" || label === "StoreList" || label === "WaypointList" ? [
+                  ...(label === "List" && options.includeItemLocalizedStrings
+                    ? [
+                        {
+                          label: "LocalizedName",
+                          type: "cexolocstring" as const,
+                          value: {
+                            strRef: 0xffff_ffff,
+                            entries: [
+                              { languageId: 42, text: "Retained" },
+                              { languageId: 0, text: "Sword" },
+                              { languageId: 10, text: "Miecz" },
+                            ],
+                          },
+                        },
+                        {
+                          label: "Description",
+                          type: "cexolocstring" as const,
+                          value: {
+                            strRef: 0xffff_ffff,
+                            entries: [
+                              { languageId: 0, text: "Unknown blade" },
+                              { languageId: 11, text: "Opis" },
+                            ],
+                          },
+                        },
+                        {
+                          label: "DescIdentified",
+                          type: "cexolocstring" as const,
+                          value: {
+                            strRef: 0xffff_ffff,
+                            entries: [
+                              { languageId: 0, text: "Known" },
+                              { languageId: 10, text: "Rozpoznany" },
+                            ],
+                          },
+                        },
+                      ]
+                    : []),
                   { label: "XPosition", type: "float" as const, value: label === "StoreList" ? 42.91445541381836 : 60.9686 },
                   { label: "YPosition", type: "float" as const, value: label === "StoreList" ? 50.39402770996094 : 27.1816 },
                   { label: "ZPosition", type: "float" as const, value: label === "StoreList" ? 0.0000004999999987376214 : 0 },
@@ -5793,6 +6530,33 @@ function objectPair(options: Readonly<{
                     ? [
                         { label: "HP", type: "short" as const, value: 15 },
                         { label: "CurrentHP", type: "short" as const, value: 45 },
+                      ]
+                    : []),
+                  ...(options.includePlaceableLocalizedStrings
+                    ? [
+                        {
+                          label: "LocName",
+                          type: "cexolocstring" as const,
+                          value: {
+                            strRef: 0xffff_ffff,
+                            entries: [
+                              { languageId: 42, text: "Retained" },
+                              { languageId: 0, text: "Chest" },
+                              { languageId: 10, text: "Skrzynia" },
+                            ],
+                          },
+                        },
+                        {
+                          label: "Description",
+                          type: "cexolocstring" as const,
+                          value: {
+                            strRef: 0xffff_ffff,
+                            entries: [
+                              { languageId: 0, text: "Storage" },
+                              { languageId: 11, text: "Opis" },
+                            ],
+                          },
+                        },
                       ]
                     : []),
                   ...(options.includePlaceableTemplateResRef

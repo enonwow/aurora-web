@@ -90,6 +90,10 @@ import {
   readWaypointVariableTargetEntries,
 } from "../../scene/domain/waypointVariableTable";
 import {
+  readTriggerVariableProvenance,
+  readTriggerVariableTargetEntries,
+} from "../../scene/domain/triggerVariableTable";
+import {
   encounterCreatureListIdentityMatches,
   readEncounterCreatureListProvenance,
   readEncounterCreatureListTargetEntries,
@@ -165,7 +169,8 @@ import {
   MAX_CREATURE_FIRST_NAME_ASCII_BYTES,
   MAX_CREATURE_LAST_NAME_ASCII_BYTES,
   MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
-  readCreatureNameInlineAsciiStorage,
+  readEditableCreatureLocalizedStringEntries,
+  readEditableCreatureLocalizedStringStorage,
   readCreatureNameLocalizedStrings,
 } from "../../scene/domain/creatureNameLocalizedStrings";
 import {
@@ -193,6 +198,16 @@ import {
   readPlaceableHitPointState,
 } from "../../scene/domain/placeableHitPoints";
 import { isPlaceableEditorComment } from "../../scene/domain/placeableEditorComment";
+import {
+  MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES,
+  MAX_PLACEABLE_LOC_NAME_ASCII_BYTES,
+  isPlaceableInlineAsciiText,
+  readEditablePlaceableLocalizedStringEntries,
+  readEditablePlaceableLocalizedStringStorage,
+  readPlaceableLocalizedStrings,
+} from "../../scene/domain/placeableLocalizedStrings";
+import { isAddableAreaNameStorageEntryIdentifier } from
+  "../domain/areaNameLanguageCatalog";
 import { isCreatureEditorComment } from "../../scene/domain/creatureEditorComment";
 import { isItemEditorComment } from "../../scene/domain/itemEditorComment";
 import { isStoreEditorComment } from "../../scene/domain/storeEditorComment";
@@ -261,6 +276,10 @@ import {
 } from "../../scene/domain/triggerScriptResRefs";
 import { isTriggerTransitionStorage } from
   "../../scene/domain/triggerTransitionStorage";
+import { isTriggerCoreProperties } from
+  "../../scene/domain/triggerCoreProperties";
+import { isTriggerTrapProperties } from
+  "../../scene/domain/triggerTrapProperties";
 import { readEncounterActiveStorage } from "../../scene/domain/encounterActive";
 import { readEncounterPlayerOnlyStorage } from
   "../../scene/domain/encounterPlayerOnly";
@@ -323,7 +342,8 @@ import {
   MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES,
   MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES,
   isItemLocalizedStringInlineAsciiText,
-  readItemLocalizedStringInlineAsciiStorage,
+  readEditableItemLocalizedStringEntries,
+  readEditableItemLocalizedStringStorage,
   readItemLocalizedStrings,
 } from "../../scene/domain/itemLocalizedStrings";
 import {
@@ -604,6 +624,7 @@ function isSceneObject(
   if (!isPlaceablePlotHasInventoryState(value)) return false;
   if (!isPlaceableDurabilitySaveByteState(value)) return false;
   if (!isPlaceableHitPointState(value)) return false;
+  if (!isPlaceableLocalizedStringState(value)) return false;
   if (!isPlaceableEditorCommentState(value)) return false;
   if (!isItemTagState(value)) return false;
   if (!isTriggerTagState(value)) return false;
@@ -614,6 +635,9 @@ function isSceneObject(
   if (!isTriggerEditorCommentState(value)) return false;
   if (!isTriggerScriptResRefsState(value)) return false;
   if (!isTriggerTransitionStorageState(value)) return false;
+  if (!isTriggerCorePropertiesState(value)) return false;
+  if (!isTriggerTrapPropertiesState(value)) return false;
+  if (!isTriggerVariableState(value)) return false;
   if (!isEncounterTemplateResRefState(value)) return false;
   if (!isWaypointTemplateResRefState(value)) return false;
   if (!isWaypointLocalizedNameState(value)) return false;
@@ -1250,6 +1274,77 @@ function isPlaceableEditorCommentState(value: Record<string, unknown>): boolean 
     && isPlaceableEditorComment(placeableProperties.comments);
 }
 
+function isPlaceableLocalizedStringFieldState(
+  sourceStorageValue: unknown,
+  properties: Record<string, unknown>,
+  scalarKey: "localizedName" | "description",
+  entriesKey: "localizedNameEntries" | "descriptionEntries",
+  maxDefaultBytes: number,
+): boolean {
+  const sourceStorage = readEditablePlaceableLocalizedStringStorage(
+    sourceStorageValue,
+    maxDefaultBytes,
+  );
+  const hasScalar = Object.prototype.hasOwnProperty.call(properties, scalarKey);
+  const hasEntries = Object.prototype.hasOwnProperty.call(properties, entriesKey);
+  if (!sourceStorage) return !hasEntries;
+  if (!hasScalar || !isPlaceableInlineAsciiText(properties[scalarKey], maxDefaultBytes)) {
+    return false;
+  }
+  if (!hasEntries) return true;
+
+  const targetEntries = readEditablePlaceableLocalizedStringEntries(
+    properties[entriesKey],
+    maxDefaultBytes,
+  );
+  if (!targetEntries) return false;
+  const defaultText = targetEntries.find((entry) => entry.languageId === 0)?.text ?? "";
+  if (properties[scalarKey] !== defaultText) return false;
+  const sourceIdentifiers = new Set(sourceStorage.entries.map((entry) => entry.languageId));
+  return targetEntries.every((entry) =>
+    sourceIdentifiers.has(entry.languageId) ||
+    (isAddableAreaNameStorageEntryIdentifier(entry.languageId) && entry.text.length > 0));
+}
+
+function isPlaceableLocalizedStringState(value: Record<string, unknown>): boolean {
+  const source = isRecord(value.source) ? value.source : undefined;
+  const properties = isRecord(value.placeableProperties)
+    ? value.placeableProperties
+    : undefined;
+  const hasSource = source !== undefined && Object.prototype.hasOwnProperty.call(
+    source,
+    "placeableLocalizedStrings",
+  );
+  const hasEntryTargets = properties !== undefined && (
+    Object.prototype.hasOwnProperty.call(properties, "localizedNameEntries") ||
+    Object.prototype.hasOwnProperty.call(properties, "descriptionEntries")
+  );
+  if (!hasSource) return !hasEntryTargets;
+  if (
+    value.kind !== "placeables" ||
+    source?.type !== "aurora_git" ||
+    source.sourceKind !== "placeable" ||
+    !isNonNegativeInteger(source.sourceIndex) ||
+    !properties
+  ) return false;
+  const sourceStrings = readPlaceableLocalizedStrings(source.placeableLocalizedStrings);
+  return sourceStrings !== undefined &&
+    isPlaceableLocalizedStringFieldState(
+      sourceStrings.locName,
+      properties,
+      "localizedName",
+      "localizedNameEntries",
+      MAX_PLACEABLE_LOC_NAME_ASCII_BYTES,
+    ) &&
+    isPlaceableLocalizedStringFieldState(
+      sourceStrings.description,
+      properties,
+      "description",
+      "descriptionEntries",
+      MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES,
+    );
+}
+
 function isItemEditorCommentState(value: Record<string, unknown>): boolean {
   const source = isRecord(value.source) ? value.source : undefined;
   const hasSource = source !== undefined &&
@@ -1641,6 +1736,46 @@ function isTriggerTransitionStorageState(value: Record<string, unknown>): boolea
   return !hasTarget || isTriggerTransitionStorage(value.triggerTransitionStorage);
 }
 
+function isTriggerCorePropertiesState(value: Record<string, unknown>): boolean {
+  const source = isRecord(value.source) ? value.source : undefined;
+  const hasSource = source !== undefined
+    && Object.prototype.hasOwnProperty.call(source, "triggerCoreProperties");
+  const hasTarget = Object.prototype.hasOwnProperty.call(
+    value,
+    "triggerCoreProperties",
+  );
+  if (!hasSource && !hasTarget) return true;
+  if (
+    value.kind !== "triggers"
+    || !source
+    || source.type !== "aurora_git"
+    || source.sourceKind !== "trigger"
+    || !isNonNegativeInteger(source.sourceIndex)
+    || !isTriggerCoreProperties(source.triggerCoreProperties)
+  ) return false;
+  return !hasTarget || isTriggerCoreProperties(value.triggerCoreProperties);
+}
+
+function isTriggerTrapPropertiesState(value: Record<string, unknown>): boolean {
+  const source = isRecord(value.source) ? value.source : undefined;
+  const hasSource = source !== undefined
+    && Object.prototype.hasOwnProperty.call(source, "triggerTrapProperties");
+  const hasTarget = Object.prototype.hasOwnProperty.call(
+    value,
+    "triggerTrapProperties",
+  );
+  if (!hasSource && !hasTarget) return true;
+  if (
+    value.kind !== "triggers"
+    || !source
+    || source.type !== "aurora_git"
+    || source.sourceKind !== "trigger"
+    || !isNonNegativeInteger(source.sourceIndex)
+    || !isTriggerTrapProperties(source.triggerTrapProperties)
+  ) return false;
+  return !hasTarget || isTriggerTrapProperties(value.triggerTrapProperties);
+}
+
 function isWaypointLocalizedNameState(value: Record<string, unknown>): boolean {
   const source = isRecord(value.source) ? value.source : undefined;
   const hasSource = source !== undefined && Object.prototype.hasOwnProperty.call(
@@ -1736,6 +1871,23 @@ function isWaypointVariableState(value: Record<string, unknown>): boolean {
     isNonNegativeInteger(sourceMetadata.sourceIndex) &&
     readWaypointVariableProvenance(sourceMetadata.waypointVariables) !== null &&
     hasTarget && readWaypointVariableTargetEntries(value.waypointVariables) !== null;
+}
+
+function isTriggerVariableState(value: Record<string, unknown>): boolean {
+  const source = isRecord(value.source) ? value.source : undefined;
+  const hasSource = source !== undefined && Object.prototype.hasOwnProperty.call(
+    source,
+    "triggerVariables",
+  );
+  const hasTarget = Object.prototype.hasOwnProperty.call(value, "triggerVariables");
+  if (!hasSource && !hasTarget) return true;
+  const sourceMetadata = source as unknown as SceneObjectSourceMetadata;
+  return value.kind === "triggers" &&
+    sourceMetadata.type === "aurora_git" &&
+    sourceMetadata.sourceKind === "trigger" &&
+    isNonNegativeInteger(sourceMetadata.sourceIndex) &&
+    readTriggerVariableProvenance(sourceMetadata.triggerVariables) !== null &&
+    hasTarget && readTriggerVariableTargetEntries(value.triggerVariables) !== null;
 }
 
 function isWaypointAppearanceState(value: Record<string, unknown>): boolean {
@@ -2158,15 +2310,61 @@ function isItemInstanceStateState(value: Record<string, unknown>): boolean {
   }) !== null;
 }
 
+function isItemLocalizedStringFieldState(
+  sourceStorageValue: unknown,
+  properties: Record<string, unknown>,
+  scalarKey: "localizedName" | "description" | "identifiedDescription",
+  entriesKey:
+    | "localizedNameEntries"
+    | "descriptionEntries"
+    | "identifiedDescriptionEntries",
+  maxDefaultBytes: number,
+): boolean {
+  const sourceStorage = readEditableItemLocalizedStringStorage(
+    sourceStorageValue,
+    maxDefaultBytes,
+  );
+  const hasScalar = Object.prototype.hasOwnProperty.call(properties, scalarKey);
+  const hasEntries = Object.prototype.hasOwnProperty.call(properties, entriesKey);
+  if (!sourceStorage) {
+    return !hasEntries && hasScalar && isItemLocalizedStringInlineAsciiText(
+      properties[scalarKey],
+      maxDefaultBytes,
+    );
+  }
+  if (!hasScalar || !isItemLocalizedStringInlineAsciiText(
+    properties[scalarKey],
+    maxDefaultBytes,
+  )) return false;
+  if (!hasEntries) return true;
+
+  const targetEntries = readEditableItemLocalizedStringEntries(
+    properties[entriesKey],
+    maxDefaultBytes,
+  );
+  if (!targetEntries) return false;
+  const defaultText = targetEntries.find((entry) => entry.languageId === 0)?.text ?? "";
+  if (properties[scalarKey] !== defaultText) return false;
+  const sourceIdentifiers = new Set(sourceStorage.entries.map((entry) => entry.languageId));
+  return targetEntries.every((entry) => sourceIdentifiers.has(entry.languageId) || (
+    isAddableAreaNameStorageEntryIdentifier(entry.languageId) && entry.text.length > 0
+  ));
+}
+
 function isItemLocalizedStringState(value: Record<string, unknown>): boolean {
   const source = isRecord(value.source) ? value.source : undefined;
   const hasExactSource = source !== undefined &&
     Object.prototype.hasOwnProperty.call(source, "itemLocalizedStrings");
-  if (!hasExactSource) return true;
+  const itemProperties = isRecord(value.itemProperties) ? value.itemProperties : undefined;
+  const hasEntryTargets = itemProperties !== undefined && (
+    Object.prototype.hasOwnProperty.call(itemProperties, "localizedNameEntries") ||
+    Object.prototype.hasOwnProperty.call(itemProperties, "descriptionEntries") ||
+    Object.prototype.hasOwnProperty.call(itemProperties, "identifiedDescriptionEntries")
+  );
+  if (!hasExactSource) return !hasEntryTargets;
 
   const sourceMetadata = source as unknown as SceneObjectSourceMetadata;
   const localizedStrings = readItemLocalizedStrings(sourceMetadata.itemLocalizedStrings);
-  const itemProperties = isRecord(value.itemProperties) ? value.itemProperties : undefined;
   if (
     value.kind !== "items" ||
     sourceMetadata.type !== "aurora_git" ||
@@ -2176,34 +2374,30 @@ function isItemLocalizedStringState(value: Record<string, unknown>): boolean {
     !itemProperties ||
     !Object.prototype.hasOwnProperty.call(itemProperties, "localizedName") ||
     !Object.prototype.hasOwnProperty.call(itemProperties, "description") ||
-    !Object.prototype.hasOwnProperty.call(itemProperties, "identifiedDescription") ||
-    typeof itemProperties.localizedName !== "string" ||
-    typeof itemProperties.description !== "string" ||
-    typeof itemProperties.identifiedDescription !== "string"
+    !Object.prototype.hasOwnProperty.call(itemProperties, "identifiedDescription")
   ) {
     return false;
   }
 
-  const fields = [
-    {
-      source: localizedStrings.localizedName,
-      target: itemProperties.localizedName,
-      maxBytes: MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES,
-    },
-    {
-      source: localizedStrings.description,
-      target: itemProperties.description,
-      maxBytes: MAX_ITEM_DESCRIPTION_ASCII_BYTES,
-    },
-    {
-      source: localizedStrings.identifiedDescription,
-      target: itemProperties.identifiedDescription,
-      maxBytes: MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES,
-    },
-  ] as const;
-  return fields.every((field) =>
-    readItemLocalizedStringInlineAsciiStorage(field.source, field.maxBytes) === undefined ||
-    isItemLocalizedStringInlineAsciiText(field.target, field.maxBytes));
+  return isItemLocalizedStringFieldState(
+    localizedStrings.localizedName,
+    itemProperties,
+    "localizedName",
+    "localizedNameEntries",
+    MAX_ITEM_LOCALIZED_NAME_ASCII_BYTES,
+  ) && isItemLocalizedStringFieldState(
+    localizedStrings.description,
+    itemProperties,
+    "description",
+    "descriptionEntries",
+    MAX_ITEM_DESCRIPTION_ASCII_BYTES,
+  ) && isItemLocalizedStringFieldState(
+    localizedStrings.identifiedDescription,
+    itemProperties,
+    "identifiedDescription",
+    "identifiedDescriptionEntries",
+    MAX_ITEM_IDENTIFIED_DESCRIPTION_ASCII_BYTES,
+  );
 }
 
 function isItemVariableState(value: Record<string, unknown>): boolean {
@@ -2906,8 +3100,111 @@ function isCreatureClassIdentityState(value: Record<string, unknown>): boolean {
   const totalLevel = targetLevels.reduce((sum, level) => sum + level, 0);
   if (totalLevel > 180) return false;
   if (new Set(targetClassIds).size !== targetClassIds.length) return false;
+  const rawClassSpellClearSlotIndices = creatureProperties?.classSpellClearSlotIndices;
+  const rawClassSpellClearConfirmed = creatureProperties?.classSpellClearConfirmed;
+  let classSpellClearRequested = false;
+  if (rawClassSpellClearSlotIndices !== undefined) {
+    if (!Array.isArray(rawClassSpellClearSlotIndices) ||
+      rawClassSpellClearSlotIndices.length > storage.entries.length) return false;
+    let previousIndex = -1;
+    for (const rawIndex of rawClassSpellClearSlotIndices) {
+      if (!Number.isSafeInteger(rawIndex) || Number(rawIndex) <= previousIndex ||
+        Number(rawIndex) < 0 || Number(rawIndex) >= storage.entries.length ||
+        storage.entries[Number(rawIndex)]?.canonicalSpellListFieldCount === 0) return false;
+      previousIndex = Number(rawIndex);
+    }
+    classSpellClearRequested = rawClassSpellClearSlotIndices.length > 0;
+  }
+  if (classSpellClearRequested) {
+    if (rawClassSpellClearConfirmed !== true) return false;
+  } else if (rawClassSpellClearConfirmed !== undefined &&
+    rawClassSpellClearConfirmed !== false) return false;
+  const rawClassSpellRemovalTargets = creatureProperties?.classSpellRemovalTargets;
+  const rawClassSpellRemovalConfirmed = creatureProperties?.classSpellRemovalConfirmed;
+  let classSpellRemovalRequested = false;
+  if (rawClassSpellRemovalTargets !== undefined) {
+    if (!Array.isArray(rawClassSpellRemovalTargets) ||
+      rawClassSpellRemovalTargets.length > 256 ||
+      storage.entries.some((entry) => !entry.spellLists)) return false;
+    const sourceTargets = new Set(storage.entries.flatMap((entry, classSlotIndex) =>
+      entry.spellLists!.flatMap((list) => list.entries.map((_spell, entryIndex) =>
+        `${classSlotIndex}:${list.listKind}:${list.spellLevel}:${entryIndex}`))));
+    let previousOrder = -1;
+    for (const rawTarget of rawClassSpellRemovalTargets) {
+      if (!isRecord(rawTarget) || Object.keys(rawTarget).length !== 4 ||
+        !isNonNegativeInteger(rawTarget.classSlotIndex) ||
+        Number(rawTarget.classSlotIndex) >= storage.entries.length ||
+        (rawTarget.listKind !== "known" && rawTarget.listKind !== "memorized") ||
+        !isNonNegativeInteger(rawTarget.spellLevel) || Number(rawTarget.spellLevel) > 13 ||
+        !isNonNegativeInteger(rawTarget.entryIndex) || Number(rawTarget.entryIndex) > 255) {
+        return false;
+      }
+      const order = Number(rawTarget.classSlotIndex) * 28 * 256 +
+        (rawTarget.listKind === "known" ? 0 : 14) * 256 +
+        Number(rawTarget.spellLevel) * 256 + Number(rawTarget.entryIndex);
+      const key = `${rawTarget.classSlotIndex}:${rawTarget.listKind}:` +
+        `${rawTarget.spellLevel}:${rawTarget.entryIndex}`;
+      if (order <= previousOrder || !sourceTargets.has(key)) return false;
+      previousOrder = order;
+    }
+    classSpellRemovalRequested = rawClassSpellRemovalTargets.length > 0;
+  }
+  if (classSpellRemovalRequested) {
+    if (rawClassSpellRemovalConfirmed !== true || classSpellClearRequested) return false;
+  } else if (rawClassSpellRemovalConfirmed !== undefined &&
+    rawClassSpellRemovalConfirmed !== false) return false;
+  const rawClassSpellReorders = creatureProperties?.classSpellReorders;
+  const rawClassSpellReorderConfirmed = creatureProperties?.classSpellReorderConfirmed;
+  let classSpellReorderRequested = false;
+  if (rawClassSpellReorders !== undefined) {
+    if (!Array.isArray(rawClassSpellReorders) || rawClassSpellReorders.length > 224 ||
+      storage.entries.some((entry) => !entry.spellLists)) return false;
+    const sourceLists = new Map<string, number>(storage.entries.flatMap((entry, classSlotIndex) =>
+      entry.spellLists!.filter((list) => list.entries.length >= 2).map((list) => [
+        `${classSlotIndex}:${list.listKind}:${list.spellLevel}`,
+        list.entries.length,
+      ] as const)));
+    let previousOrder = -1;
+    let carriedEntryCount = 0;
+    for (const rawReorder of rawClassSpellReorders) {
+      if (!isRecord(rawReorder) || Object.keys(rawReorder).length !== 4 ||
+        !isNonNegativeInteger(rawReorder.classSlotIndex) ||
+        Number(rawReorder.classSlotIndex) >= storage.entries.length ||
+        (rawReorder.listKind !== "known" && rawReorder.listKind !== "memorized") ||
+        !isNonNegativeInteger(rawReorder.spellLevel) || Number(rawReorder.spellLevel) > 13 ||
+        !Array.isArray(rawReorder.entryOrder)) return false;
+      const order = Number(rawReorder.classSlotIndex) * 28 +
+        (rawReorder.listKind === "known" ? 0 : 14) + Number(rawReorder.spellLevel);
+      const key = `${rawReorder.classSlotIndex}:${rawReorder.listKind}:${rawReorder.spellLevel}`;
+      const sourceLength = sourceLists.get(key);
+      if (order <= previousOrder || sourceLength === undefined ||
+        rawReorder.entryOrder.length !== sourceLength) return false;
+      const seen = new Set<number>();
+      let changed = false;
+      for (let index = 0; index < rawReorder.entryOrder.length; index += 1) {
+        const rawIndex = rawReorder.entryOrder[index];
+        if (!Number.isSafeInteger(rawIndex) || Number(rawIndex) < 0 ||
+          Number(rawIndex) >= sourceLength || seen.has(Number(rawIndex))) return false;
+        seen.add(Number(rawIndex));
+        changed ||= Number(rawIndex) !== index;
+      }
+      if (!changed) return false;
+      previousOrder = order;
+      carriedEntryCount += sourceLength;
+      if (carriedEntryCount > 256) return false;
+    }
+    classSpellReorderRequested = rawClassSpellReorders.length > 0;
+  }
+  if (classSpellReorderRequested) {
+    if (rawClassSpellReorderConfirmed !== true || classSpellClearRequested ||
+      classSpellRemovalRequested) return false;
+  } else if (rawClassSpellReorderConfirmed !== undefined &&
+    rawClassSpellReorderConfirmed !== false) return false;
   const slotCountChanged = classEntries.length !== storage.entries.length;
   if (slotCountChanged) {
+    if (classSpellClearRequested || classSpellRemovalRequested || classSpellReorderRequested) {
+      return false;
+    }
     const retainedPrefixLength = Math.min(classEntries.length, storage.entries.length);
     if (!storage.classesTable || targetClassIds.slice(0, retainedPrefixLength).some(
       (classId, index) => classId !== storage.entries[index]?.classId ||
@@ -2943,6 +3240,9 @@ function isCreatureClassIdentityState(value: Record<string, unknown>): boolean {
     (level, index) => level !== storage.entries[index]?.level,
   );
   if (levelsChanged) {
+    if (classSpellClearRequested || classSpellRemovalRequested || classSpellReorderRequested) {
+      return false;
+    }
     const classLevels = readCreatureClassLevelState(sourceMetadata.creatureClassLevelState);
     const hitPoints = readCreatureHitPointState(sourceMetadata.creatureHitPointState);
     if (!classLevels?.present || !hitPoints?.present || !hitPoints.racialTypes ||
@@ -2956,6 +3256,8 @@ function isCreatureClassIdentityState(value: Record<string, unknown>): boolean {
   const changed = targetClassIds.some(
     (classId, index) => classId !== storage.entries[index]?.classId,
   );
+  if (changed && (classSpellClearRequested || classSpellRemovalRequested ||
+    classSpellReorderRequested)) return false;
   if (!changed) {
     return creatureProperties?.classIdentityDestructiveSpellClearConfirmed === undefined ||
       typeof creatureProperties.classIdentityDestructiveSpellClearConfirmed === "boolean";
@@ -3456,19 +3758,57 @@ function isCreatureAlignmentState(value: Record<string, unknown>): boolean {
     normalizeCreatureAlignmentLabel(creatureProperties.alignment) !== null;
 }
 
+function isCreatureLocalizedStringFieldState(
+  sourceStorageValue: unknown,
+  properties: Record<string, unknown>,
+  scalarKey: "firstName" | "lastName" | "description",
+  entriesKey: "firstNameEntries" | "lastNameEntries" | "descriptionEntries",
+  maxDefaultBytes: number,
+): boolean {
+  const sourceStorage = readEditableCreatureLocalizedStringStorage(
+    sourceStorageValue,
+    maxDefaultBytes,
+  );
+  const hasScalar = Object.prototype.hasOwnProperty.call(properties, scalarKey);
+  const hasEntries = Object.prototype.hasOwnProperty.call(properties, entriesKey);
+  if (!sourceStorage) return !hasEntries && hasScalar && typeof properties[scalarKey] === "string";
+  if (!hasScalar || !isCreatureNameInlineAsciiText(
+    properties[scalarKey],
+    maxDefaultBytes,
+  )) return false;
+  if (!hasEntries) return true;
+
+  const targetEntries = readEditableCreatureLocalizedStringEntries(
+    properties[entriesKey],
+    maxDefaultBytes,
+  );
+  if (!targetEntries) return false;
+  const defaultText = targetEntries.find((entry) => entry.languageId === 0)?.text ?? "";
+  if (properties[scalarKey] !== defaultText) return false;
+  const sourceIdentifiers = new Set(sourceStorage.entries.map((entry) => entry.languageId));
+  return targetEntries.every((entry) => sourceIdentifiers.has(entry.languageId) || (
+    isAddableAreaNameStorageEntryIdentifier(entry.languageId) && entry.text.length > 0
+  ));
+}
+
 function isCreatureNameLocalizedStringState(value: Record<string, unknown>): boolean {
   const source = isRecord(value.source) ? value.source : undefined;
   const hasExactSource = source !== undefined
     && Object.prototype.hasOwnProperty.call(source, "creatureLocalizedStrings");
-  if (!hasExactSource) return true;
+  const creatureProperties = isRecord(value.creatureProperties)
+    ? value.creatureProperties
+    : undefined;
+  const hasEntryTargets = creatureProperties !== undefined && (
+    Object.prototype.hasOwnProperty.call(creatureProperties, "firstNameEntries")
+    || Object.prototype.hasOwnProperty.call(creatureProperties, "lastNameEntries")
+    || Object.prototype.hasOwnProperty.call(creatureProperties, "descriptionEntries")
+  );
+  if (!hasExactSource) return !hasEntryTargets;
 
   const sourceMetadata = source as unknown as SceneObjectSourceMetadata;
   const localizedStrings = readCreatureNameLocalizedStrings(
     sourceMetadata.creatureLocalizedStrings,
   );
-  const creatureProperties = isRecord(value.creatureProperties)
-    ? value.creatureProperties
-    : undefined;
   if (
     value.kind !== "creatures"
     || sourceMetadata.type !== "aurora_git"
@@ -3487,36 +3827,29 @@ function isCreatureNameLocalizedStringState(value: Record<string, unknown>): boo
     return false;
   }
 
-  const editableFirstName = readCreatureNameInlineAsciiStorage(
+  if (!isCreatureLocalizedStringFieldState(
     localizedStrings.firstName,
+    creatureProperties,
+    "firstName",
+    "firstNameEntries",
     MAX_CREATURE_FIRST_NAME_ASCII_BYTES,
-  );
-  const editableLastName = readCreatureNameInlineAsciiStorage(
+  ) || !isCreatureLocalizedStringFieldState(
     localizedStrings.lastName,
+    creatureProperties,
+    "lastName",
+    "lastNameEntries",
     MAX_CREATURE_LAST_NAME_ASCII_BYTES,
+  )) return false;
+  if (localizedStrings.description === undefined) {
+    return !Object.prototype.hasOwnProperty.call(creatureProperties, "descriptionEntries");
+  }
+  return isCreatureLocalizedStringFieldState(
+    localizedStrings.description,
+    creatureProperties,
+    "description",
+    "descriptionEntries",
+    MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
   );
-  const editableDescription = localizedStrings.description === undefined
-    ? undefined
-    : readCreatureNameInlineAsciiStorage(
-        localizedStrings.description,
-        MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
-      );
-  return (editableFirstName === undefined
-      || isCreatureNameInlineAsciiText(
-        creatureProperties.firstName,
-        MAX_CREATURE_FIRST_NAME_ASCII_BYTES,
-      ))
-    && (editableLastName === undefined
-      || isCreatureNameInlineAsciiText(
-        creatureProperties.lastName,
-        MAX_CREATURE_LAST_NAME_ASCII_BYTES,
-      ))
-    && (localizedStrings.description === undefined
-      || editableDescription === undefined
-      || isCreatureNameInlineAsciiText(
-        creatureProperties.description,
-        MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
-      ));
 }
 
 function isCreatureInventoryState(value: Record<string, unknown>): boolean {

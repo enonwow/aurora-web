@@ -2377,6 +2377,62 @@ describe("existing Area object deletion planner", () => {
     expect(Object.isFrozen((plan.propertyMutations[0] as any).localizedStrings)).toBe(true);
   });
 
+  it("revalidates complete ordered Creature localized-string source lists by ordinal", () => {
+    const source = sourceGit({
+      creatureLocalizedStringFields: [{
+        label: "FirstName",
+        type: "cexolocstring",
+        value: {
+          strRef: 0xffff_ffff,
+          entries: [
+            { languageId: 42, text: "Legacy" },
+            { languageId: 0, text: "Guard" },
+          ],
+        },
+      }],
+    });
+    const creature = {
+      ...retained("diagnostic_only", "creature", "creatures", "nw_guard", "NW_GUARD", 1, 2),
+      sourceIndex: 0,
+    };
+    const localizedStrings = [{
+      field: "FirstName",
+      expectedValue: "Guard",
+      value: "Captain",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Guard" },
+      ],
+      valueEntries: [
+        { languageId: 0, text: "Captain" },
+        { languageId: 2, text: "Capitaine" },
+        { languageId: 42, text: "Legacy 2" },
+      ],
+    }];
+
+    expect(planExistingAreaObjectDeletions(source, editing([creature], [{
+      kind: "creature",
+      sourceObjectId: "diagnostic_only",
+      sourceIndex: 0,
+      localizedStrings,
+    } as never])).propertyMutations).toEqual([{
+      kind: "creature",
+      sourceIndex: 0,
+      localizedStrings,
+    }]);
+
+    expect(() => planExistingAreaObjectDeletions(source, editing([creature], [{
+      kind: "creature",
+      sourceObjectId: "diagnostic_only",
+      sourceIndex: 0,
+      localizedStrings: [{
+        ...localizedStrings[0],
+        expectedEntries: [...localizedStrings[0]!.expectedEntries].reverse(),
+      }],
+    } as never]))).toThrow("differs from immutable provenance");
+  });
+
   it.each([
     ["stale source", [
       { label: "FirstName", type: "cexolocstring" as const, value: {
@@ -3270,6 +3326,60 @@ describe("existing Area object deletion planner", () => {
       ],
     }]);
     expect(Object.isFrozen((plan.propertyMutations[0] as any).localizedStrings)).toBe(true);
+  });
+
+  it("revalidates and detaches a complete ordered Placeable localized-string CAS", () => {
+    const localizedStrings = [{
+      field: "LocName",
+      expectedValue: "Chest",
+      value: "Chest",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 0, text: "Chest" },
+        { languageId: 2, text: "Coffre" },
+      ],
+      valueEntries: [
+        { languageId: 10, text: "Skrzynia" },
+        { languageId: 0, text: "Chest" },
+      ],
+    }];
+    const plan = planExistingAreaObjectDeletions(
+      sourceGit({
+        includePlaceable: true,
+        placeableLocalizedStringFields: [{
+          label: "LocName",
+          type: "cexolocstring",
+          value: {
+            strRef: 0xffff_ffff,
+            entries: [
+              { languageId: 0, text: "Chest" },
+              { languageId: 2, text: "Coffre" },
+            ],
+          },
+        }],
+      }),
+      editing(
+        [{
+          ...retained("obj_plc_chest", "placeable", "placeables", "plc_chest", "CHEST", 4, 5),
+          sourceIndex: 0,
+        }],
+        [{
+          kind: "placeable",
+          sourceObjectId: "diagnostic_only",
+          sourceIndex: 0,
+          localizedStrings,
+        } as never],
+      ),
+    );
+
+    expect(plan.propertyMutations).toEqual([{
+      kind: "placeable",
+      sourceIndex: 0,
+      localizedStrings,
+    }]);
+    const plannedMutation = (plan.propertyMutations[0] as any).localizedStrings[0];
+    expect(plannedMutation.expectedEntries).not.toBe(localizedStrings[0]!.expectedEntries);
+    expect(Object.isFrozen(plannedMutation.valueEntries)).toBe(true);
   });
 
   it.each([
@@ -5543,6 +5653,60 @@ describe("existing Area object deletion planner", () => {
         { field: "Description", expectedValue: "", value: "Unknown blade" },
       ],
     }]);
+  });
+
+  it("replans and detaches a complete ordered ground-item localized-string list CAS", () => {
+    const localizedStrings = [{
+      field: "LocalizedName",
+      expectedValue: "Sword",
+      value: "Sword 2",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Sword" },
+      ],
+      valueEntries: [
+        { languageId: 0, text: "Sword 2" },
+        { languageId: 2, text: "Epee" },
+        { languageId: 42, text: "Legacy 2" },
+      ],
+    }];
+    const plan = planExistingAreaObjectDeletions(
+      sourceGit({
+        itemLocalizedStringFields: [{
+          label: "LocalizedName",
+          type: "cexolocstring",
+          value: {
+            strRef: 0xffff_ffff,
+            entries: [
+              { languageId: 42, text: "Legacy" },
+              { languageId: 0, text: "Sword" },
+            ],
+          },
+        }],
+      }),
+      editing(
+        [
+          retained("obj_cre_nw_guard", "creature", "creatures", "nw_guard", "NW_GUARD", 1, 2),
+          retained("obj_itm_nw_sword", "item", "items", "nw_sword", "NW_SWORD", 3, 4),
+        ],
+        [{
+          kind: "item",
+          sourceObjectId: "obj_itm_nw_sword",
+          sourceIndex: 0,
+          localizedStrings,
+        } as never],
+      ),
+    );
+
+    expect(plan.propertyMutations).toEqual([{
+      kind: "item",
+      sourceIndex: 0,
+      localizedStrings,
+    }]);
+    expect((plan.propertyMutations[0] as any).localizedStrings).not.toBe(localizedStrings);
+    expect((plan.propertyMutations[0] as any).localizedStrings[0].valueEntries)
+      .not.toBe(localizedStrings[0]!.valueEntries);
   });
 
   it("replans one exact retained ground-item PropertiesList CAS by immutable ordinal", () => {

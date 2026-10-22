@@ -104,6 +104,17 @@ import {
   readExistingCreatureClassIdentityProvenance,
   type ExistingCreatureClassCatalog,
 } from "../../application/creatureClassIdentityProvenance";
+import { readExistingCreatureClassSpellClearProvenance } from
+  "../../application/creatureClassSpellClearProvenance";
+import {
+  readExistingCreatureClassSpellRemovalProvenance,
+  type CreatureClassSpellRemovalTarget,
+} from "../../application/creatureClassSpellRemovalProvenance";
+import {
+  readExistingCreatureClassSpellReorderProvenance,
+  type CreatureClassSpellReorder,
+  type ExistingCreatureClassSpellReorderList,
+} from "../../application/creatureClassSpellReorderProvenance";
 import type { CreatureAbilityScoreKey } from "../../../scene/domain/creatureAbilityScores";
 import type { CreatureAppearanceColorKey } from "../../../scene/domain/creatureAppearanceColors";
 import { canEditExistingCreatureAppearanceColor } from
@@ -127,12 +138,18 @@ import { canEditExistingCreatureEditorComment } from "../../application/creature
 import { CREATURE_EDITOR_COMMENT_MAX_CODE_UNITS } from "../../../scene/domain/creatureEditorComment";
 import { MAX_CREATURE_TAG_CODE_UNITS } from "../../application/creatureTagProvenance";
 import { MAX_CREATURE_CONVERSATION_RESREF_BYTES } from "../../application/creatureConversationProvenance";
+
 import {
   MAX_CREATURE_FIRST_NAME_ASCII_BYTES,
   MAX_CREATURE_LAST_NAME_ASCII_BYTES,
   MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
+  MAX_CREATURE_LOCALIZED_STRING_ENTRIES,
+  MAX_CREATURE_LOCALIZED_STRING_ENTRY_BYTES,
+  MAX_CREATURE_LOCALIZED_STRING_TOTAL_TEXT_BYTES,
+  isCreatureNameInlineAsciiText,
 } from "../../../scene/domain/creatureNameLocalizedStrings";
 import type {
+  SceneObjectEditableLocalizedStringEntry,
   SceneCreaturePortraitCatalog,
   ScenePlaceableBodyBagCatalog,
   ScenePlaceableFactionCatalog,
@@ -149,6 +166,67 @@ import {
 } from "../../../scene/domain/creatureDeathRemains";
 import { CREATURE_TEMPLATE_RESREF_MAX_CODE_UNITS } from "../../../scene/domain/creatureTemplateResRef";
 import { CREATURE_SPECIAL_IDENTITY_STRING_MAX_CODE_UNITS } from "../../../scene/domain/creatureSpecialIdentityStrings";
+import { LocalizedStringEntryEditor } from "./LocalizedStringEntryEditor";
+
+function classSpellRemovalTargetOrder(target: CreatureClassSpellRemovalTarget): number {
+  return target.classSlotIndex * 28 * 256 + (target.listKind === "known" ? 0 : 14) * 256 +
+    target.spellLevel * 256 + target.entryIndex;
+}
+
+function compareClassSpellRemovalTargets(
+  left: CreatureClassSpellRemovalTarget,
+  right: CreatureClassSpellRemovalTarget,
+): number {
+  return classSpellRemovalTargetOrder(left) - classSpellRemovalTargetOrder(right);
+}
+
+function classSpellRemovalTargetKey(target: CreatureClassSpellRemovalTarget): string {
+  return `${target.classSlotIndex}:${target.listKind}:${target.spellLevel}:${target.entryIndex}`;
+}
+
+function classSpellReorderKey(
+  value: Pick<CreatureClassSpellReorder, "classSlotIndex" | "listKind" | "spellLevel">,
+): string {
+  return `${value.classSlotIndex}:${value.listKind}:${value.spellLevel}`;
+}
+
+function classSpellReorderOrder(
+  value: Pick<CreatureClassSpellReorder, "classSlotIndex" | "listKind" | "spellLevel">,
+): number {
+  return value.classSlotIndex * 28 + (value.listKind === "known" ? 0 : 14) + value.spellLevel;
+}
+
+function stageCreatureClassSpellEntryMove(
+  current: readonly CreatureClassSpellReorder[],
+  list: ExistingCreatureClassSpellReorderList,
+  displayIndex: number,
+  direction: "up" | "down",
+): CreatureClassSpellReorder[] {
+  const key = classSpellReorderKey(list);
+  const existing = current.find((candidate) => classSpellReorderKey(candidate) === key);
+  const entryOrder = existing
+    ? [...existing.entryOrder]
+    : list.entries.map((_entry, index) => index);
+  const otherIndex = direction === "up" ? displayIndex - 1 : displayIndex + 1;
+  if (displayIndex < 0 || displayIndex >= entryOrder.length ||
+    otherIndex < 0 || otherIndex >= entryOrder.length) return current.map((entry) => ({
+      ...entry,
+      entryOrder: [...entry.entryOrder],
+    }));
+  [entryOrder[displayIndex], entryOrder[otherIndex]] =
+    [entryOrder[otherIndex]!, entryOrder[displayIndex]!];
+  const identity = entryOrder.every((sourceIndex, index) => sourceIndex === index);
+  const next = current.filter((candidate) => classSpellReorderKey(candidate) !== key)
+    .map((candidate) => ({ ...candidate, entryOrder: [...candidate.entryOrder] }));
+  if (!identity) next.push({
+    classSlotIndex: list.classSlotIndex,
+    listKind: list.listKind,
+    spellLevel: list.spellLevel,
+    entryOrder,
+  });
+  return next.sort((left, right) => classSpellReorderOrder(left) - classSpellReorderOrder(right));
+}
+
 type CreatureVariableDraft = CreaturePropertiesDraft["variables"][number];
 type CreatureResourceOptions = Partial<
   Record<"conversation" | "portrait" | "script" | "soundset", CreatureApiResourceOption[]>
@@ -214,7 +292,10 @@ interface CreaturePropertiesDialogProps {
   setCreaturePropertiesActiveTab: (nextTab: CreaturePropertiesTab) => void;
   updateCreaturePropertiesDraftField: (
     field: keyof CreaturePropertiesDraft,
-    value: string | number | boolean
+    value: string | number | boolean | readonly number[] |
+      readonly CreatureClassSpellRemovalTarget[] |
+      readonly CreatureClassSpellReorder[] |
+      readonly SceneObjectEditableLocalizedStringEntry[]
   ) => void;
   updateCreatureClassEntry: (
     index: number,
@@ -680,6 +761,15 @@ export function CreaturePropertiesDialog({
   const classIdentityProvenance = readExistingCreatureClassIdentityProvenance(
     creaturePropertiesDialog.snapshotObject.source,
   );
+  const classSpellClearProvenance = readExistingCreatureClassSpellClearProvenance(
+    creaturePropertiesDialog.snapshotObject.source,
+  );
+  const classSpellRemovalProvenance = readExistingCreatureClassSpellRemovalProvenance(
+    creaturePropertiesDialog.snapshotObject.source,
+  );
+  const classSpellReorderProvenance = readExistingCreatureClassSpellReorderProvenance(
+    creaturePropertiesDialog.snapshotObject.source,
+  );
   const targetClassIds = creaturePropertiesDialog.draft.classEntries.flatMap((entry) =>
     Number.isSafeInteger(entry.classId) ? [Number(entry.classId)] : []);
   const creatureClassSlotCountChanged = classIdentityProvenance !== null &&
@@ -753,6 +843,46 @@ export function CreaturePropertiesDialog({
   );
   const creatureClassApplyReady = creatureClassIdentityApplyReady &&
     creatureClassSlotResizeApplyReady;
+  const creatureClassSpellClearEditable = classSpellClearProvenance !== null &&
+    creaturePropertiesDialog.draft.classEntries.length ===
+      classSpellClearProvenance.sourceClassIds.length &&
+    creaturePropertiesDialog.draft.classEntries.every((entry, index) =>
+      entry.classId === classSpellClearProvenance.sourceClassIds[index] &&
+      entry.level === classSpellClearProvenance.sourceLevels[index]);
+  const creatureClassSpellClearSelectedSlotEligible = creatureClassSpellClearEditable &&
+    Number.isSafeInteger(creatureSpellsClassFilterIndex) &&
+    creatureSpellsClassFilterIndex >= 0 &&
+    creatureSpellsClassFilterIndex < classSpellClearProvenance.sourceClassIds.length &&
+    classSpellClearProvenance.canonicalSpellListFieldCounts[
+      creatureSpellsClassFilterIndex
+    ]! > 0;
+  const creatureClassSpellClearSelectedSlotStaged =
+    creaturePropertiesDialog.draft.classSpellClearSlotIndices.includes(
+      creatureSpellsClassFilterIndex,
+    );
+  const creatureClassSpellRemovalEditable = classSpellRemovalProvenance !== null &&
+    creaturePropertiesDialog.draft.classEntries.length ===
+      classSpellRemovalProvenance.sourceClassIds.length &&
+    creaturePropertiesDialog.draft.classEntries.every((entry, index) =>
+      entry.classId === classSpellRemovalProvenance.sourceClassIds[index] &&
+      entry.level === classSpellRemovalProvenance.sourceLevels[index]);
+  const stagedClassSpellRemovalKeys = new Set(
+    creaturePropertiesDialog.draft.classSpellRemovalTargets.map(classSpellRemovalTargetKey),
+  );
+  const visibleClassSpellRemovalEntries = classSpellRemovalProvenance?.entries.filter((entry) =>
+    entry.target.classSlotIndex === creatureSpellsClassFilterIndex &&
+    (creatureSpellsLevelFilter === "All Levels" ||
+      String(entry.target.spellLevel) === creatureSpellsLevelFilter)) ?? [];
+  const creatureClassSpellReorderEditable = classSpellReorderProvenance !== null &&
+    creaturePropertiesDialog.draft.classEntries.length ===
+      classSpellReorderProvenance.sourceClassIds.length &&
+    creaturePropertiesDialog.draft.classEntries.every((entry, index) =>
+      entry.classId === classSpellReorderProvenance.sourceClassIds[index] &&
+      entry.level === classSpellReorderProvenance.sourceLevels[index]);
+  const visibleClassSpellReorderLists = classSpellReorderProvenance?.lists.filter((list) =>
+    list.classSlotIndex === creatureSpellsClassFilterIndex &&
+    (creatureSpellsLevelFilter === "All Levels" ||
+      String(list.spellLevel) === creatureSpellsLevelFilter)) ?? [];
   const creatureSkillListProvenance = readExistingCreatureSkillListProvenance(
     creaturePropertiesDialog.snapshotObject.source,
   );
@@ -917,13 +1047,14 @@ export function CreaturePropertiesDialog({
     Object.entries(creatureFeatsSummary)
       .map(([type, names]) => `${type}\n${names.map((name) => `  ${name}`).join("\n")}`)
       .join("\n") || "No assigned feats";
-  const creatureSpellSource = creaturePropertiesDialog.draft.spells;
+  const creatureSpellSource = creaturePropertiesDialog.draft.spells.filter((entry) =>
+    entry.classIndex === undefined ||
+    !creaturePropertiesDialog.draft.classSpellClearSlotIndices.includes(entry.classIndex));
   const creatureSpellsRows =
-    creatureSpellsLevelFilter === "All Levels"
-      ? creatureSpellSource
-      : creatureSpellSource.filter(
-          (entry) => String(entry.spellLevel) === creatureSpellsLevelFilter
-        );
+    creatureSpellSource.filter((entry) =>
+      (entry.classIndex === undefined || entry.classIndex === creatureSpellsClassFilterIndex) &&
+      (creatureSpellsLevelFilter === "All Levels" ||
+        String(entry.spellLevel) === creatureSpellsLevelFilter));
   const creatureClassFilterEntries = creaturePropertiesDialog.draft.classEntries
     .map((entry) => entry.className.trim())
     .filter((entry, index) => entry.length > 0 || index === 0)
@@ -996,6 +1127,7 @@ export function CreaturePropertiesDialog({
                       <div className="canvas-placeable-properties-field-control">
                         <input
                           type="text"
+                          aria-label="First Name"
                           value={creaturePropertiesDialog.draft.firstName}
                           disabled={
                             creaturePropertiesDialog.draft.firstNameControlState !== "ACTIVE_NOW"
@@ -1010,6 +1142,22 @@ export function CreaturePropertiesDialog({
                         </button>
                       </div>
                     </label>
+                    {creaturePropertiesDialog.draft.firstNameControlState === "ACTIVE_NOW" ? (
+                      <LocalizedStringEntryEditor
+                        objectLabel="Creature"
+                        fieldLabel="First Name"
+                        entries={creaturePropertiesDialog.draft.firstNameEntries}
+                        defaultTextMaxLength={MAX_CREATURE_FIRST_NAME_ASCII_BYTES}
+                        entryTextMaxLength={MAX_CREATURE_LOCALIZED_STRING_ENTRY_BYTES}
+                        maxEntries={MAX_CREATURE_LOCALIZED_STRING_ENTRIES}
+                        maxTotalTextLength={MAX_CREATURE_LOCALIZED_STRING_TOTAL_TEXT_BYTES}
+                        isInlineText={isCreatureNameInlineAsciiText}
+                        onChange={(entries) => updateCreaturePropertiesDraftField(
+                          "firstNameEntries",
+                          entries,
+                        )}
+                      />
+                    ) : null}
                     <p className="canvas-creature-properties-cell-value">
                       LastName: {creaturePropertiesDialog.draft.lastNameControlState}
                     </p>
@@ -1018,6 +1166,7 @@ export function CreaturePropertiesDialog({
                       <div className="canvas-placeable-properties-field-control">
                         <input
                           type="text"
+                          aria-label="Last Name"
                           value={creaturePropertiesDialog.draft.lastName}
                           disabled={
                             creaturePropertiesDialog.draft.lastNameControlState !== "ACTIVE_NOW"
@@ -1032,6 +1181,22 @@ export function CreaturePropertiesDialog({
                         </button>
                       </div>
                     </label>
+                    {creaturePropertiesDialog.draft.lastNameControlState === "ACTIVE_NOW" ? (
+                      <LocalizedStringEntryEditor
+                        objectLabel="Creature"
+                        fieldLabel="Last Name"
+                        entries={creaturePropertiesDialog.draft.lastNameEntries}
+                        defaultTextMaxLength={MAX_CREATURE_LAST_NAME_ASCII_BYTES}
+                        entryTextMaxLength={MAX_CREATURE_LOCALIZED_STRING_ENTRY_BYTES}
+                        maxEntries={MAX_CREATURE_LOCALIZED_STRING_ENTRIES}
+                        maxTotalTextLength={MAX_CREATURE_LOCALIZED_STRING_TOTAL_TEXT_BYTES}
+                        isInlineText={isCreatureNameInlineAsciiText}
+                        onChange={(entries) => updateCreaturePropertiesDraftField(
+                          "lastNameEntries",
+                          entries,
+                        )}
+                      />
+                    ) : null}
                     <p className="canvas-creature-properties-cell-value">
                       Description: {creaturePropertiesDialog.draft.descriptionControlState}
                     </p>
@@ -1054,6 +1219,22 @@ export function CreaturePropertiesDialog({
                         </button>
                       </div>
                     </label>
+                    {creaturePropertiesDialog.draft.descriptionControlState === "ACTIVE_NOW" ? (
+                      <LocalizedStringEntryEditor
+                        objectLabel="Creature"
+                        fieldLabel="Description"
+                        entries={creaturePropertiesDialog.draft.descriptionEntries}
+                        defaultTextMaxLength={MAX_CREATURE_DESCRIPTION_ASCII_BYTES}
+                        entryTextMaxLength={MAX_CREATURE_LOCALIZED_STRING_ENTRY_BYTES}
+                        maxEntries={MAX_CREATURE_LOCALIZED_STRING_ENTRIES}
+                        maxTotalTextLength={MAX_CREATURE_LOCALIZED_STRING_TOTAL_TEXT_BYTES}
+                        isInlineText={isCreatureNameInlineAsciiText}
+                        onChange={(entries) => updateCreaturePropertiesDraftField(
+                          "descriptionEntries",
+                          entries,
+                        )}
+                      />
+                    ) : null}
                     <p className="canvas-creature-properties-cell-value">
                       Tag: {creaturePropertiesDialog.draft.tagControlState}
                     </p>
@@ -3452,6 +3633,21 @@ export function CreaturePropertiesDialog({
               {creaturePropertiesDialog.activeTab === "spells" ? (
                 <fieldset className="canvas-placeable-properties-group">
                   <legend>Spells</legend>
+                  <p className="canvas-creature-properties-cell-value">
+                    Class spell-list clear: {creatureClassSpellClearEditable
+                      ? "ACTIVE_NOW"
+                      : "PRESERVE_ONLY"}
+                  </p>
+                  <p className="canvas-creature-properties-cell-value">
+                    Exact spell-entry removal: {creatureClassSpellRemovalEditable
+                      ? "ACTIVE_NOW"
+                      : "PRESERVE_ONLY"}
+                  </p>
+                  <p className="canvas-creature-properties-cell-value">
+                    Exact spell-entry order: {creatureClassSpellReorderEditable
+                      ? "ACTIVE_NOW"
+                      : "PRESERVE_ONLY"}
+                  </p>
                   <table className="canvas-creature-properties-table">
                     <thead>
                       <tr>
@@ -3551,8 +3747,211 @@ export function CreaturePropertiesDialog({
                     <span>Spell Selection Summary</span>
                     <textarea value={creatureSpellsSummaryText} readOnly rows={7} />
                   </label>
+                  {creatureClassSpellRemovalEditable ? (
+                    <table className="canvas-creature-properties-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Source List</th>
+                          <th scope="col">Spell ID</th>
+                          <th scope="col">MetaMagic</th>
+                          <th scope="col">Flags</th>
+                          <th scope="col">Opaque Fields</th>
+                          <th scope="col">Removal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleClassSpellRemovalEntries.map((entry) => {
+                          const key = classSpellRemovalTargetKey(entry.target);
+                          const staged = stagedClassSpellRemovalKeys.has(key);
+                          return (
+                            <tr key={`source_spell_${key}`}>
+                              <td>{entry.target.listKind} L{entry.target.spellLevel}</td>
+                              <td>{entry.spellId}</td>
+                              <td>{entry.spellMetaMagic}</td>
+                              <td>{entry.spellFlags}</td>
+                              <td>{entry.opaqueSiblingFieldCount}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  disabled={!staged && (
+                                    !creaturePropertiesDialog.draft.classSpellRemovalConfirmed ||
+                                    creaturePropertiesDialog.draft.classSpellClearSlotIndices.length > 0 ||
+                                    creaturePropertiesDialog.draft.classSpellReorders.length > 0
+                                  )}
+                                  onClick={() => updateCreaturePropertiesDraftField(
+                                    "classSpellRemovalTargets",
+                                    staged
+                                      ? creaturePropertiesDialog.draft.classSpellRemovalTargets
+                                        .filter((target) =>
+                                          classSpellRemovalTargetKey(target) !== key)
+                                      : [...creaturePropertiesDialog.draft.classSpellRemovalTargets,
+                                          entry.target].sort(compareClassSpellRemovalTargets),
+                                  )}
+                                >
+                                  {staged ? "Undo Removal" : "Remove Entry"}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : null}
+                  <label className="canvas-placeable-properties-toggle">
+                    <input
+                      aria-label="Confirm class spell entry reorder"
+                      type="checkbox"
+                      checked={creaturePropertiesDialog.draft.classSpellReorderConfirmed}
+                      disabled={!creatureClassSpellReorderEditable ||
+                        creaturePropertiesDialog.draft.classSpellClearSlotIndices.length > 0 ||
+                        creaturePropertiesDialog.draft.classSpellRemovalTargets.length > 0}
+                      onChange={(event) => updateCreaturePropertiesDraftField(
+                        "classSpellReorderConfirmed",
+                        event.target.checked,
+                      )}
+                    />
+                    Confirm exact same-list spell-entry order changes
+                  </label>
+                  {creatureClassSpellReorderEditable && visibleClassSpellReorderLists.length > 0 ? (
+                    <table className="canvas-creature-properties-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Source List</th>
+                          <th scope="col">Order</th>
+                          <th scope="col">Spell ID</th>
+                          <th scope="col">MetaMagic</th>
+                          <th scope="col">Flags</th>
+                          <th scope="col">Move</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleClassSpellReorderLists.flatMap((list) => {
+                          const staged = creaturePropertiesDialog.draft.classSpellReorders.find(
+                            (candidate) => classSpellReorderKey(candidate) ===
+                              classSpellReorderKey(list),
+                          );
+                          const entryOrder = staged?.entryOrder ??
+                            list.entries.map((_entry, index) => index);
+                          return entryOrder.map((sourceIndex, displayIndex) => {
+                            const entry = list.entries[sourceIndex]!;
+                            const listLabel = `${list.listKind} L${list.spellLevel}`;
+                            return (
+                              <tr key={`source_spell_order_${classSpellReorderKey(list)}_${sourceIndex}`}>
+                                <td>{listLabel}</td>
+                                <td>{displayIndex + 1}</td>
+                                <td>{entry.spellId}</td>
+                                <td>{entry.spellMetaMagic}</td>
+                                <td>{entry.spellFlags}</td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    aria-label={`Move spell ${entry.spellId} up in ${listLabel}`}
+                                    disabled={!creaturePropertiesDialog.draft.classSpellReorderConfirmed ||
+                                      creaturePropertiesDialog.draft.classSpellClearSlotIndices.length > 0 ||
+                                      creaturePropertiesDialog.draft.classSpellRemovalTargets.length > 0 ||
+                                      displayIndex === 0}
+                                    onClick={() => updateCreaturePropertiesDraftField(
+                                      "classSpellReorders",
+                                      stageCreatureClassSpellEntryMove(
+                                        creaturePropertiesDialog.draft.classSpellReorders,
+                                        list,
+                                        displayIndex,
+                                        "up",
+                                      ),
+                                    )}
+                                  >
+                                    Move Up
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Move spell ${entry.spellId} down in ${listLabel}`}
+                                    disabled={!creaturePropertiesDialog.draft.classSpellReorderConfirmed ||
+                                      creaturePropertiesDialog.draft.classSpellClearSlotIndices.length > 0 ||
+                                      creaturePropertiesDialog.draft.classSpellRemovalTargets.length > 0 ||
+                                      displayIndex === entryOrder.length - 1}
+                                    onClick={() => updateCreaturePropertiesDraftField(
+                                      "classSpellReorders",
+                                      stageCreatureClassSpellEntryMove(
+                                        creaturePropertiesDialog.draft.classSpellReorders,
+                                        list,
+                                        displayIndex,
+                                        "down",
+                                      ),
+                                    )}
+                                  >
+                                    Move Down
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })}
+                      </tbody>
+                    </table>
+                  ) : null}
+                  {creaturePropertiesDialog.draft.classSpellReorders.length > 0 ? (
+                    <p className="canvas-creature-properties-cell-value">
+                      {creaturePropertiesDialog.draft.classSpellReorders.length} native spell
+                      {creaturePropertiesDialog.draft.classSpellReorders.length === 1
+                        ? " list" : " lists"} staged for reorder.
+                    </p>
+                  ) : null}
+                  <label className="canvas-placeable-properties-toggle">
+                    <input
+                      aria-label="Confirm class spell entry removal"
+                      type="checkbox"
+                      checked={creaturePropertiesDialog.draft.classSpellRemovalConfirmed}
+                      disabled={!creatureClassSpellRemovalEditable ||
+                        creaturePropertiesDialog.draft.classSpellClearSlotIndices.length > 0 ||
+                        creaturePropertiesDialog.draft.classSpellReorders.length > 0}
+                      onChange={(event) => updateCreaturePropertiesDraftField(
+                        "classSpellRemovalConfirmed",
+                        event.target.checked,
+                      )}
+                    />
+                    Confirm permanent removal of selected exact spell entries
+                  </label>
+                  {creaturePropertiesDialog.draft.classSpellRemovalTargets.length > 0 ? (
+                    <p className="canvas-creature-properties-cell-value">
+                      {creaturePropertiesDialog.draft.classSpellRemovalTargets.length} exact spell
+                      {creaturePropertiesDialog.draft.classSpellRemovalTargets.length === 1
+                        ? " entry" : " entries"} staged for removal.
+                    </p>
+                  ) : null}
+                  <label className="canvas-placeable-properties-toggle">
+                    <input
+                      aria-label="Confirm class spell list clear"
+                      type="checkbox"
+                      checked={creaturePropertiesDialog.draft.classSpellClearConfirmed}
+                      disabled={!creatureClassSpellClearEditable ||
+                        creaturePropertiesDialog.draft.classSpellRemovalTargets.length > 0 ||
+                        creaturePropertiesDialog.draft.classSpellReorders.length > 0}
+                      onChange={(event) => updateCreaturePropertiesDraftField(
+                        "classSpellClearConfirmed",
+                        event.target.checked,
+                      )}
+                    />
+                    Confirm permanent removal of the selected class spell list
+                  </label>
+                  {creatureClassSpellClearSelectedSlotStaged ? (
+                    <p className="canvas-creature-properties-cell-value">
+                      Clear staged for class slot {creatureSpellsClassFilterIndex + 1}.
+                    </p>
+                  ) : null}
                   <div className="canvas-placeable-properties-script-actions">
-                    <button type="button" disabled>
+                    <button
+                      type="button"
+                      disabled={!creatureClassSpellClearSelectedSlotEligible ||
+                        !creaturePropertiesDialog.draft.classSpellClearConfirmed ||
+                        creaturePropertiesDialog.draft.classSpellRemovalTargets.length > 0 ||
+                        creaturePropertiesDialog.draft.classSpellReorders.length > 0 ||
+                        creatureClassSpellClearSelectedSlotStaged}
+                      onClick={() => updateCreaturePropertiesDraftField(
+                        "classSpellClearSlotIndices",
+                        [...creaturePropertiesDialog.draft.classSpellClearSlotIndices,
+                          creatureSpellsClassFilterIndex].sort((left, right) => left - right),
+                      )}
+                    >
                       Clear Class Spell List
                     </button>
                     <button type="button" disabled>

@@ -75,6 +75,9 @@ import { NestAreaStoreCommerceTelemetryAdapter } from "./adapters/outbound/telem
 import { NestAreaStoreScriptResRefsTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-store-script-resrefs-telemetry.adapter";
 import { NestAreaTriggerScriptResRefsTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-trigger-script-resrefs-telemetry.adapter";
 import { NestAreaTriggerTransitionStorageTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-trigger-transition-storage-telemetry.adapter";
+import { NestAreaTriggerCorePropertiesTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-trigger-core-properties-telemetry.adapter";
+import { NestAreaTriggerTrapPropertiesTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-trigger-trap-properties-telemetry.adapter";
+import { NestAreaTriggerVariableTableTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-trigger-variable-table-telemetry.adapter";
 import { NestAreaStoreVariableTableTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-store-variable-table-telemetry.adapter";
 import { NestAreaStoreRestrictionsTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-store-restrictions-telemetry.adapter";
 import { NestAreaStoreInventoryTelemetryAdapter } from "./adapters/outbound/telemetry/nest-area-store-inventory-telemetry.adapter";
@@ -85,6 +88,9 @@ import { AREA_STORE_COMMERCE_TELEMETRY } from "./application/ports/area-store-co
 import { AREA_STORE_SCRIPT_RESREFS_TELEMETRY } from "./application/ports/area-store-script-resrefs-telemetry.port";
 import { AREA_TRIGGER_SCRIPT_RESREFS_TELEMETRY } from "./application/ports/area-trigger-script-resrefs-telemetry.port";
 import { AREA_TRIGGER_TRANSITION_STORAGE_TELEMETRY } from "./application/ports/area-trigger-transition-storage-telemetry.port";
+import { AREA_TRIGGER_CORE_PROPERTIES_TELEMETRY } from "./application/ports/area-trigger-core-properties-telemetry.port";
+import { AREA_TRIGGER_TRAP_PROPERTIES_TELEMETRY } from "./application/ports/area-trigger-trap-properties-telemetry.port";
+import { AREA_TRIGGER_VARIABLE_TABLE_TELEMETRY } from "./application/ports/area-trigger-variable-table-telemetry.port";
 import { AREA_STORE_VARIABLE_TABLE_TELEMETRY } from "./application/ports/area-store-variable-table-telemetry.port";
 import { AREA_STORE_RESTRICTIONS_TELEMETRY } from "./application/ports/area-store-restrictions-telemetry.port";
 import { AREA_STORE_INVENTORY_TELEMETRY } from "./application/ports/area-store-inventory-telemetry.port";
@@ -287,6 +293,21 @@ const AREA_DRAFT_STORE = Symbol("AREA_DRAFT_STORE");
     {
       provide: AREA_TRIGGER_TRANSITION_STORAGE_TELEMETRY,
       useExisting: NestAreaTriggerTransitionStorageTelemetryAdapter,
+    },
+    NestAreaTriggerCorePropertiesTelemetryAdapter,
+    {
+      provide: AREA_TRIGGER_CORE_PROPERTIES_TELEMETRY,
+      useExisting: NestAreaTriggerCorePropertiesTelemetryAdapter,
+    },
+    NestAreaTriggerTrapPropertiesTelemetryAdapter,
+    {
+      provide: AREA_TRIGGER_TRAP_PROPERTIES_TELEMETRY,
+      useExisting: NestAreaTriggerTrapPropertiesTelemetryAdapter,
+    },
+    NestAreaTriggerVariableTableTelemetryAdapter,
+    {
+      provide: AREA_TRIGGER_VARIABLE_TABLE_TELEMETRY,
+      useExisting: NestAreaTriggerVariableTableTelemetryAdapter,
     },
     NestAreaStoreVariableTableTelemetryAdapter,
     {
@@ -614,6 +635,9 @@ const AREA_DRAFT_STORE = Symbol("AREA_DRAFT_STORE");
         AREA_STORE_SCRIPT_RESREFS_TELEMETRY,
         AREA_TRIGGER_SCRIPT_RESREFS_TELEMETRY,
         AREA_TRIGGER_TRANSITION_STORAGE_TELEMETRY,
+        AREA_TRIGGER_CORE_PROPERTIES_TELEMETRY,
+        AREA_TRIGGER_TRAP_PROPERTIES_TELEMETRY,
+        AREA_TRIGGER_VARIABLE_TABLE_TELEMETRY,
         AREA_STORE_VARIABLE_TABLE_TELEMETRY,
         AREA_STORE_RESTRICTIONS_TELEMETRY,
         AREA_STORE_INVENTORY_TELEMETRY,
@@ -629,6 +653,9 @@ const AREA_DRAFT_STORE = Symbol("AREA_DRAFT_STORE");
         storeScriptResRefsTelemetry: AreaUpdateCandidateCompilerDependencies["storeScriptResRefsTelemetry"],
         triggerScriptResRefsTelemetry: AreaUpdateCandidateCompilerDependencies["triggerScriptResRefsTelemetry"],
         triggerTransitionStorageTelemetry: AreaUpdateCandidateCompilerDependencies["triggerTransitionStorageTelemetry"],
+        triggerCorePropertiesTelemetry: AreaUpdateCandidateCompilerDependencies["triggerCorePropertiesTelemetry"],
+        triggerTrapPropertiesTelemetry: AreaUpdateCandidateCompilerDependencies["triggerTrapPropertiesTelemetry"],
+        triggerVariableTableTelemetry: AreaUpdateCandidateCompilerDependencies["triggerVariableTableTelemetry"],
         storeVariableTableTelemetry: AreaUpdateCandidateCompilerDependencies["storeVariableTableTelemetry"],
         storeRestrictionsTelemetry: AreaUpdateCandidateCompilerDependencies["storeRestrictionsTelemetry"],
         storeInventoryTelemetry: AreaUpdateCandidateCompilerDependencies["storeInventoryTelemetry"],
@@ -643,6 +670,9 @@ const AREA_DRAFT_STORE = Symbol("AREA_DRAFT_STORE");
         storeScriptResRefsTelemetry,
         triggerScriptResRefsTelemetry,
         triggerTransitionStorageTelemetry,
+        triggerCorePropertiesTelemetry,
+        triggerTrapPropertiesTelemetry,
+        triggerVariableTableTelemetry,
         storeVariableTableTelemetry,
         storeRestrictionsTelemetry,
         storeInventoryTelemetry,

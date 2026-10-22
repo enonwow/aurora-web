@@ -4,6 +4,7 @@ import type {
   SceneObjectEncounterCreatureListTargetEntry,
   SceneObjectEncounterSpawnPointTargetEntry,
   SceneObjectEncounterVariableTargetEntry,
+  SceneObjectTriggerVariableTargetEntry,
   SceneObjectSourceMetadata,
   SceneEncounterDifficultyCatalog,
   SceneEncounterDifficultyPair,
@@ -133,6 +134,28 @@ import {
   type TriggerTransitionStorage,
 } from "../../scene/domain/triggerTransitionStorage";
 import {
+  canEditExistingTriggerCoreProperties,
+  materializeExistingTriggerCoreProperties,
+  reduceExistingTriggerCoreProperties,
+} from "../../layout/application/triggerCorePropertiesProvenance";
+import {
+  cloneTriggerCoreProperties,
+  isTriggerCoreProperties,
+  triggerCorePropertiesEqual,
+  type TriggerCoreProperties,
+} from "../../scene/domain/triggerCoreProperties";
+import {
+  canEditExistingTriggerTrapProperties,
+  materializeExistingTriggerTrapProperties,
+  reduceExistingTriggerTrapProperties,
+} from "../../layout/application/triggerTrapPropertiesProvenance";
+import {
+  cloneTriggerTrapProperties,
+  isTriggerTrapProperties,
+  triggerTrapPropertiesEqual,
+  type TriggerTrapProperties,
+} from "../../scene/domain/triggerTrapProperties";
+import {
   canEditExistingEncounterFaction,
   materializeExistingEncounterFaction,
 } from "../../layout/application/encounterFactionProvenance";
@@ -195,11 +218,18 @@ import {
 import { isTriggerEditorComment } from "../../scene/domain/triggerEditorComment";
 import { canEditExistingEncounterVariables } from
   "../../layout/application/encounterVariableProvenance";
+import { canEditExistingTriggerVariables } from
+  "../../layout/application/triggerVariableProvenance";
 import {
   encounterVariableTargetEntriesEqual,
   readEncounterVariableProvenance,
   readEncounterVariableTargetEntries,
 } from "../../scene/domain/encounterVariableTable";
+import {
+  readTriggerVariableProvenance,
+  readTriggerVariableTargetEntries,
+  triggerVariableTargetEntriesEqual,
+} from "../../scene/domain/triggerVariableTable";
 import {
   appendExistingEncounterCreatureListEntry,
   canEditExistingEncounterCreatureSingleSpawn,
@@ -261,6 +291,10 @@ export interface AreaObjectPolygonDraft {
   readonly triggerScriptResRefsControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
   readonly triggerTransitionStorage?: TriggerTransitionStorage;
   readonly triggerTransitionStorageControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  readonly triggerCoreProperties?: TriggerCoreProperties;
+  readonly triggerCorePropertiesControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  readonly triggerTrapProperties?: TriggerTrapProperties;
+  readonly triggerTrapPropertiesControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
   readonly factionId?: number;
   readonly factionControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
   readonly difficulty?: SceneEncounterDifficultyPair;
@@ -271,7 +305,9 @@ export interface AreaObjectPolygonDraft {
   readonly templateResRefControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
   readonly editorComment?: string;
   readonly editorCommentControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
-  readonly variables?: readonly SceneObjectEncounterVariableTargetEntry[];
+  readonly variables?: readonly (
+    SceneObjectEncounterVariableTargetEntry | SceneObjectTriggerVariableTargetEntry
+  )[];
   readonly variablesControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
   readonly creatureList?: readonly SceneObjectEncounterCreatureListTargetEntry[];
   readonly creatureListControlState?: "ACTIVE_NOW" | "PRESERVE_ONLY";
@@ -355,6 +391,18 @@ export function buildAreaObjectPolygonDraft(
     )
     ? object.triggerTransitionStorage ?? object.source.triggerTransitionStorage
     : undefined;
+  const triggerCoreProperties = object.kind === "triggers"
+    && isTriggerCoreProperties(
+      object.triggerCoreProperties ?? object.source.triggerCoreProperties,
+    )
+    ? object.triggerCoreProperties ?? object.source.triggerCoreProperties
+    : undefined;
+  const triggerTrapProperties = object.kind === "triggers"
+    && isTriggerTrapProperties(
+      object.triggerTrapProperties ?? object.source.triggerTrapProperties,
+    )
+    ? object.triggerTrapProperties ?? object.source.triggerTrapProperties
+    : undefined;
   const encounterFactionId = object.kind === "encounters"
     && Number.isSafeInteger(object.encounterFactionId)
     && Number(object.encounterFactionId) >= 1
@@ -431,6 +479,18 @@ export function buildAreaObjectPolygonDraft(
         ({ sourceIndex: _, ...entry }) => ({ ...entry }),
       )
     : null;
+  const triggerVariableProvenance = object.kind === "triggers"
+    ? readTriggerVariableProvenance(object.source.triggerVariables)
+    : null;
+  const triggerVariableTarget = triggerVariableProvenance
+    ? readTriggerVariableTargetEntries(object.triggerVariables)
+      ?? triggerVariableProvenance.expectedEntries.map(
+        ({ sourceIndex: _, ...entry }) => ({ ...entry }),
+      )
+    : null;
+  const areaObjectVariableTarget = object.kind === "triggers"
+    ? triggerVariableTarget
+    : encounterVariableTarget;
   const encounterCreatureListProvenance = object.kind === "encounters"
     ? readEncounterCreatureListProvenance(object.source.encounterCreatureList)
     : null;
@@ -582,6 +642,26 @@ export function buildAreaObjectPolygonDraft(
             : "PRESERVE_ONLY" as const,
       }
       : {}),
+    ...(triggerCoreProperties
+      ? {
+        triggerCoreProperties:
+          cloneTriggerCoreProperties(triggerCoreProperties),
+        triggerCorePropertiesControlState:
+          canEditExistingTriggerCoreProperties(object.source)
+            ? "ACTIVE_NOW" as const
+            : "PRESERVE_ONLY" as const,
+      }
+      : {}),
+    ...(triggerTrapProperties
+      ? {
+        triggerTrapProperties:
+          cloneTriggerTrapProperties(triggerTrapProperties),
+        triggerTrapPropertiesControlState:
+          canEditExistingTriggerTrapProperties(object.source)
+            ? "ACTIVE_NOW" as const
+            : "PRESERVE_ONLY" as const,
+      }
+      : {}),
     ...(encounterFactionId !== undefined
       ? {
         factionId: encounterFactionId,
@@ -656,10 +736,12 @@ export function buildAreaObjectPolygonDraft(
         editorCommentControlState: "ACTIVE_NOW" as const,
       }
       : {}),
-    ...(encounterVariableTarget
+    ...(areaObjectVariableTarget
       ? {
-        variables: Object.freeze(encounterVariableTarget.map((entry) => Object.freeze({ ...entry }))),
-        variablesControlState: canEditExistingEncounterVariables(object.source)
+        variables: Object.freeze(areaObjectVariableTarget.map((entry) => Object.freeze({ ...entry }))),
+        variablesControlState: (object.kind === "triggers"
+          ? canEditExistingTriggerVariables(object.source)
+          : canEditExistingEncounterVariables(object.source))
           ? "ACTIVE_NOW" as const
           : "PRESERVE_ONLY" as const,
       }
@@ -1112,6 +1194,84 @@ export function materializeAreaObjectPolygonDraftTriggerTransitionStorage(
   );
 }
 
+export function updateAreaObjectPolygonDraftTriggerCoreProperties(
+  draft: AreaObjectPolygonDraft,
+  source: SceneObjectSourceMetadata | undefined,
+  value: unknown,
+): AreaObjectPolygonDraft {
+  if (
+    draft.objectKind !== "triggers"
+    || !draft.triggerCoreProperties
+  ) return draft;
+  const triggerCoreProperties = reduceExistingTriggerCoreProperties(
+    source,
+    draft.triggerCoreProperties,
+    value,
+  );
+  return triggerCorePropertiesEqual(
+    triggerCoreProperties,
+    draft.triggerCoreProperties,
+  )
+    ? draft
+    : Object.freeze({ ...draft, triggerCoreProperties });
+}
+
+export function materializeAreaObjectPolygonDraftTriggerCoreProperties(
+  draft: AreaObjectPolygonDraft,
+  source: SceneObjectSourceMetadata | undefined,
+  current: TriggerCoreProperties | undefined,
+): TriggerCoreProperties | undefined {
+  if (!isTriggerCoreProperties(current)) return undefined;
+  if (
+    draft.objectKind !== "triggers"
+    || !draft.triggerCoreProperties
+  ) return cloneTriggerCoreProperties(current);
+  return materializeExistingTriggerCoreProperties(
+    source,
+    current,
+    draft.triggerCoreProperties,
+  );
+}
+
+export function updateAreaObjectPolygonDraftTriggerTrapProperties(
+  draft: AreaObjectPolygonDraft,
+  source: SceneObjectSourceMetadata | undefined,
+  value: unknown,
+): AreaObjectPolygonDraft {
+  if (
+    draft.objectKind !== "triggers"
+    || !draft.triggerTrapProperties
+  ) return draft;
+  const triggerTrapProperties = reduceExistingTriggerTrapProperties(
+    source,
+    draft.triggerTrapProperties,
+    value,
+  );
+  return triggerTrapPropertiesEqual(
+    triggerTrapProperties,
+    draft.triggerTrapProperties,
+  )
+    ? draft
+    : Object.freeze({ ...draft, triggerTrapProperties });
+}
+
+export function materializeAreaObjectPolygonDraftTriggerTrapProperties(
+  draft: AreaObjectPolygonDraft,
+  source: SceneObjectSourceMetadata | undefined,
+  current: TriggerTrapProperties | undefined,
+): TriggerTrapProperties | undefined {
+  if (!isTriggerTrapProperties(current)) return undefined;
+  if (
+    draft.objectKind !== "triggers"
+    || !draft.triggerTrapProperties
+  ) return cloneTriggerTrapProperties(current);
+  return materializeExistingTriggerTrapProperties(
+    source,
+    current,
+    draft.triggerTrapProperties,
+  );
+}
+
 export function updateAreaObjectPolygonDraftFaction(
   draft: AreaObjectPolygonDraft,
   source: SceneObjectSourceMetadata | undefined,
@@ -1265,10 +1425,19 @@ export function updateAreaObjectPolygonDraftVariables(
   source: SceneObjectSourceMetadata | undefined,
   value: unknown,
 ): AreaObjectPolygonDraft {
-  if (draft.objectKind !== "encounters" || draft.variables === undefined ||
-      !canEditExistingEncounterVariables(source)) return draft;
-  const variables = readEncounterVariableTargetEntries(value);
-  if (!variables || encounterVariableTargetEntriesEqual(draft.variables, variables)) {
+  if (draft.variables === undefined) return draft;
+  const canEdit = draft.objectKind === "triggers"
+    ? canEditExistingTriggerVariables(source)
+    : canEditExistingEncounterVariables(source);
+  if (!canEdit) return draft;
+  const variables = draft.objectKind === "triggers"
+    ? readTriggerVariableTargetEntries(value)
+    : readEncounterVariableTargetEntries(value);
+  if (!variables) return draft;
+  const equal = draft.objectKind === "triggers"
+    ? triggerVariableTargetEntriesEqual(draft.variables, variables)
+    : encounterVariableTargetEntriesEqual(draft.variables, variables);
+  if (equal) {
     return draft;
   }
   return Object.freeze({
@@ -1280,12 +1449,20 @@ export function updateAreaObjectPolygonDraftVariables(
 export function materializeAreaObjectPolygonDraftVariables(
   draft: AreaObjectPolygonDraft,
   source: SceneObjectSourceMetadata | undefined,
-  current: readonly SceneObjectEncounterVariableTargetEntry[] | undefined,
-): readonly SceneObjectEncounterVariableTargetEntry[] | undefined {
-  if (draft.objectKind !== "encounters" || draft.variables === undefined ||
-      draft.variablesControlState !== "ACTIVE_NOW" ||
-      !canEditExistingEncounterVariables(source)) return current;
-  const variables = readEncounterVariableTargetEntries(draft.variables);
+  current: readonly (
+    SceneObjectEncounterVariableTargetEntry | SceneObjectTriggerVariableTargetEntry
+  )[] | undefined,
+): readonly (
+  SceneObjectEncounterVariableTargetEntry | SceneObjectTriggerVariableTargetEntry
+)[] | undefined {
+  const canEdit = draft.objectKind === "triggers"
+    ? canEditExistingTriggerVariables(source)
+    : canEditExistingEncounterVariables(source);
+  if (draft.variables === undefined || draft.variablesControlState !== "ACTIVE_NOW" ||
+      !canEdit) return current;
+  const variables = draft.objectKind === "triggers"
+    ? readTriggerVariableTargetEntries(draft.variables)
+    : readEncounterVariableTargetEntries(draft.variables);
   return variables?.map((entry) => ({ ...entry })) ?? current;
 }
 

@@ -4,6 +4,8 @@ import type {
   SceneObjectCreatureAppearanceProfile,
   SceneObjectCreatureAppearanceSettings,
   SceneObjectCreatureClassEntry,
+  SceneObjectCreatureClassSpellRemovalTarget,
+  SceneObjectCreatureClassSpellReorder,
   SceneObjectCreatureEquippedItemReference,
   SceneObjectCreatureFeatEntry,
   SceneObjectCreatureInventoryItemReference,
@@ -75,6 +77,14 @@ import {
   isPlaceableTrapTargetValue,
   type PlaceableTrapByteField
 } from "./placeableTrapByteFields";
+import {
+  MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
+  MAX_CREATURE_FIRST_NAME_ASCII_BYTES,
+  MAX_CREATURE_LAST_NAME_ASCII_BYTES,
+  cloneEditableCreatureLocalizedStringEntries,
+  creatureLocalizedStringEntriesEqual,
+  readEditableCreatureLocalizedStringEntries,
+} from "./creatureNameLocalizedStrings";
 
 const TERRAIN_SEQUENCE: TerrainBrushKind[] = [
   "corridor",
@@ -1587,6 +1597,131 @@ function areEmbeddedItemSummariesEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function normalizeCreatureClassSpellClearSlotIndices(value: unknown): number[] | undefined {
+  if (!Array.isArray(value) || value.length > 8) return undefined;
+  const result: number[] = [];
+  let previous = -1;
+  for (const entry of value) {
+    if (!Number.isSafeInteger(entry) || Number(entry) < 0 || Number(entry) > 7 ||
+      Number(entry) <= previous) return undefined;
+    previous = Number(entry);
+    result.push(previous);
+  }
+  return result;
+}
+
+function normalizeCreatureClassSpellRemovalTargets(
+  value: unknown,
+): SceneObjectCreatureClassSpellRemovalTarget[] | undefined {
+  if (!Array.isArray(value) || value.length > 256) return undefined;
+  const result: SceneObjectCreatureClassSpellRemovalTarget[] = [];
+  let previous = -1;
+  for (const entry of value) {
+    if (!isRecord(entry) || Object.keys(entry).length !== 4 ||
+      !Object.prototype.hasOwnProperty.call(entry, "classSlotIndex") ||
+      !Object.prototype.hasOwnProperty.call(entry, "listKind") ||
+      !Object.prototype.hasOwnProperty.call(entry, "spellLevel") ||
+      !Object.prototype.hasOwnProperty.call(entry, "entryIndex") ||
+      !Number.isSafeInteger(entry.classSlotIndex) || Number(entry.classSlotIndex) < 0 ||
+      Number(entry.classSlotIndex) > 7 ||
+      (entry.listKind !== "known" && entry.listKind !== "memorized") ||
+      !Number.isSafeInteger(entry.spellLevel) || Number(entry.spellLevel) < 0 ||
+      Number(entry.spellLevel) > 13 ||
+      !Number.isSafeInteger(entry.entryIndex) || Number(entry.entryIndex) < 0 ||
+      Number(entry.entryIndex) > 255) return undefined;
+    const target = {
+      classSlotIndex: Number(entry.classSlotIndex),
+      listKind: entry.listKind,
+      spellLevel: Number(entry.spellLevel),
+      entryIndex: Number(entry.entryIndex),
+    } as const;
+    const order = target.classSlotIndex * 28 * 256 +
+      (target.listKind === "known" ? 0 : 14) * 256 + target.spellLevel * 256 +
+      target.entryIndex;
+    if (order <= previous) return undefined;
+    previous = order;
+    result.push(target);
+  }
+  return result;
+}
+
+function normalizeCreatureClassSpellReorders(
+  value: unknown,
+): SceneObjectCreatureClassSpellReorder[] | undefined {
+  if (!Array.isArray(value) || value.length > 224) return undefined;
+  const result: SceneObjectCreatureClassSpellReorder[] = [];
+  let previous = -1;
+  let carriedEntryCount = 0;
+  for (const entry of value) {
+    if (!isRecord(entry) || Object.keys(entry).length !== 4 ||
+      !Object.prototype.hasOwnProperty.call(entry, "classSlotIndex") ||
+      !Object.prototype.hasOwnProperty.call(entry, "listKind") ||
+      !Object.prototype.hasOwnProperty.call(entry, "spellLevel") ||
+      !Object.prototype.hasOwnProperty.call(entry, "entryOrder") ||
+      !Number.isSafeInteger(entry.classSlotIndex) || Number(entry.classSlotIndex) < 0 ||
+      Number(entry.classSlotIndex) > 7 ||
+      (entry.listKind !== "known" && entry.listKind !== "memorized") ||
+      !Number.isSafeInteger(entry.spellLevel) || Number(entry.spellLevel) < 0 ||
+      Number(entry.spellLevel) > 13 || !Array.isArray(entry.entryOrder) ||
+      entry.entryOrder.length < 2 || entry.entryOrder.length > 256) return undefined;
+    const order = Number(entry.classSlotIndex) * 28 +
+      (entry.listKind === "known" ? 0 : 14) + Number(entry.spellLevel);
+    if (order <= previous) return undefined;
+    previous = order;
+    const seen = new Set<number>();
+    let changed = false;
+    const entryOrder: number[] = [];
+    for (let index = 0; index < entry.entryOrder.length; index += 1) {
+      const rawIndex = entry.entryOrder[index];
+      if (!Number.isSafeInteger(rawIndex) || Number(rawIndex) < 0 ||
+        Number(rawIndex) >= entry.entryOrder.length || seen.has(Number(rawIndex))) {
+        return undefined;
+      }
+      seen.add(Number(rawIndex));
+      entryOrder.push(Number(rawIndex));
+      changed ||= Number(rawIndex) !== index;
+    }
+    if (!changed) return undefined;
+    carriedEntryCount += entryOrder.length;
+    if (carriedEntryCount > 256) return undefined;
+    result.push({
+      classSlotIndex: Number(entry.classSlotIndex),
+      listKind: entry.listKind,
+      spellLevel: Number(entry.spellLevel),
+      entryOrder,
+    });
+  }
+  return result;
+}
+
+function areOptionalNumberVectorsEqual(
+  left: readonly number[] | undefined,
+  right: readonly number[] | undefined,
+): boolean {
+  return left === right || Boolean(left && right && left.length === right.length &&
+    left.every((entry, index) => entry === right[index]));
+}
+
+function areCreatureClassSpellRemovalTargetsEqual(
+  left: readonly SceneObjectCreatureClassSpellRemovalTarget[] | undefined,
+  right: readonly SceneObjectCreatureClassSpellRemovalTarget[] | undefined,
+): boolean {
+  return left === right || Boolean(left && right && left.length === right.length &&
+    left.every((entry, index) => entry.classSlotIndex === right[index]?.classSlotIndex &&
+      entry.listKind === right[index]?.listKind && entry.spellLevel === right[index]?.spellLevel &&
+      entry.entryIndex === right[index]?.entryIndex));
+}
+
+function areCreatureClassSpellReordersEqual(
+  left: readonly SceneObjectCreatureClassSpellReorder[] | undefined,
+  right: readonly SceneObjectCreatureClassSpellReorder[] | undefined,
+): boolean {
+  return left === right || Boolean(left && right && left.length === right.length &&
+    left.every((entry, index) => entry.classSlotIndex === right[index]?.classSlotIndex &&
+      entry.listKind === right[index]?.listKind && entry.spellLevel === right[index]?.spellLevel &&
+      areOptionalNumberVectorsEqual(entry.entryOrder, right[index]?.entryOrder)));
+}
+
 function areCreatureStatisticsEqual(
   left: SceneObjectCreatureStatisticsSettings | undefined,
   right: SceneObjectCreatureStatisticsSettings | undefined
@@ -1845,6 +1980,27 @@ function scaleCoordinate(value: number, from: number, to: number): number {
     return value;
   }
   return (value / from) * to;
+}
+
+function readCoherentCreatureLocalizedStringEntries(
+  value: unknown,
+  maxDefaultBytes: number,
+  scalar: string,
+): SceneObjectCreatureProperties["firstNameEntries"] | undefined {
+  const entries = readEditableCreatureLocalizedStringEntries(value, maxDefaultBytes);
+  if (!entries || (entries.find((entry) => entry.languageId === 0)?.text ?? "") !== scalar) {
+    return undefined;
+  }
+  return cloneEditableCreatureLocalizedStringEntries(entries);
+}
+
+function optionalCreatureLocalizedStringEntriesEqual(
+  left: SceneObjectCreatureProperties["firstNameEntries"],
+  right: SceneObjectCreatureProperties["firstNameEntries"],
+): boolean {
+  return left === undefined || right === undefined
+    ? left === right
+    : creatureLocalizedStringEntriesEqual(left, right);
 }
 
 export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
@@ -2293,6 +2449,11 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     const hasRawScriptSlots = isRecord(rawCreatureProperties?.scriptSlots);
     const hasRawAdvancedSettings = isRecord(rawCreatureProperties?.advancedSettings);
     const hasRawClassEntries = Array.isArray(rawCreatureProperties?.classEntries);
+    const hasRawClassSpellClearSlotIndices =
+      Array.isArray(rawCreatureProperties?.classSpellClearSlotIndices);
+    const hasRawClassSpellRemovalTargets =
+      Array.isArray(rawCreatureProperties?.classSpellRemovalTargets);
+    const hasRawClassSpellReorders = Array.isArray(rawCreatureProperties?.classSpellReorders);
     const hasRawTemplateEntries = Array.isArray(rawCreatureProperties?.templateEntries);
     const hasRawSkills = Array.isArray(rawCreatureProperties?.skills);
     const hasRawFeats = Array.isArray(rawCreatureProperties?.feats);
@@ -3267,6 +3428,34 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         : undefined;
 
     const normalizedClassEntries = normalizeCreatureClassEntries(rawCreatureProperties?.classEntries);
+    const normalizedClassSpellClearSlotIndices = normalizeCreatureClassSpellClearSlotIndices(
+      rawCreatureProperties?.classSpellClearSlotIndices,
+    );
+    const normalizedClassSpellRemovalTargets = normalizeCreatureClassSpellRemovalTargets(
+      rawCreatureProperties?.classSpellRemovalTargets,
+    );
+    const normalizedClassSpellReorders = normalizeCreatureClassSpellReorders(
+      rawCreatureProperties?.classSpellReorders,
+    );
+    const nextClassIdentityDestructiveSpellClearConfirmed =
+      isBoolean(rawCreatureProperties?.classIdentityDestructiveSpellClearConfirmed)
+        ? rawCreatureProperties.classIdentityDestructiveSpellClearConfirmed
+        : undefined;
+    const nextClassSlotResizeDestructiveRemovalConfirmed =
+      isBoolean(rawCreatureProperties?.classSlotResizeDestructiveRemovalConfirmed)
+        ? rawCreatureProperties.classSlotResizeDestructiveRemovalConfirmed
+        : undefined;
+    const nextClassSpellClearConfirmed = isBoolean(rawCreatureProperties?.classSpellClearConfirmed)
+      ? rawCreatureProperties.classSpellClearConfirmed
+      : undefined;
+    const nextClassSpellRemovalConfirmed =
+      isBoolean(rawCreatureProperties?.classSpellRemovalConfirmed)
+        ? rawCreatureProperties.classSpellRemovalConfirmed
+        : undefined;
+    const nextClassSpellReorderConfirmed =
+      isBoolean(rawCreatureProperties?.classSpellReorderConfirmed)
+        ? rawCreatureProperties.classSpellReorderConfirmed
+        : undefined;
     const normalizedTemplateEntries = normalizeCreatureTemplateEntries(
       rawCreatureProperties?.templateEntries
     );
@@ -3405,6 +3594,21 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       DEFAULT_CREATURE_PROPERTIES.description
     );
     const nextDescription = asString(rawCreatureProperties?.description, sourceDescription);
+    const nextFirstNameEntries = readCoherentCreatureLocalizedStringEntries(
+      rawCreatureProperties?.firstNameEntries,
+      MAX_CREATURE_FIRST_NAME_ASCII_BYTES,
+      nextFirstName,
+    );
+    const nextLastNameEntries = readCoherentCreatureLocalizedStringEntries(
+      rawCreatureProperties?.lastNameEntries,
+      MAX_CREATURE_LAST_NAME_ASCII_BYTES,
+      nextLastName,
+    );
+    const nextDescriptionEntries = readCoherentCreatureLocalizedStringEntries(
+      rawCreatureProperties?.descriptionEntries,
+      MAX_CREATURE_DESCRIPTION_ASCII_BYTES,
+      nextDescription,
+    );
     const sourceChallengeRating = asFiniteNumber(
       currentCreatureProperties?.challengeRating,
       DEFAULT_CREATURE_PROPERTIES.challengeRating
@@ -3466,6 +3670,15 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       conversation: nextConversation,
       noInterrupt: nextNoInterrupt
     };
+    if (nextFirstNameEntries !== undefined) {
+      nextCreatureProperties.firstNameEntries = nextFirstNameEntries;
+    }
+    if (nextLastNameEntries !== undefined) {
+      nextCreatureProperties.lastNameEntries = nextLastNameEntries;
+    }
+    if (nextDescriptionEntries !== undefined) {
+      nextCreatureProperties.descriptionEntries = nextDescriptionEntries;
+    }
     if (nextCreatureAppearanceType !== undefined) {
       nextCreatureProperties.appearanceType = nextCreatureAppearanceType;
     }
@@ -3501,6 +3714,32 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     }
     if (nextClassEntries !== undefined) {
       nextCreatureProperties.classEntries = nextClassEntries;
+    }
+    if (nextClassIdentityDestructiveSpellClearConfirmed !== undefined) {
+      nextCreatureProperties.classIdentityDestructiveSpellClearConfirmed =
+        nextClassIdentityDestructiveSpellClearConfirmed;
+    }
+    if (nextClassSlotResizeDestructiveRemovalConfirmed !== undefined) {
+      nextCreatureProperties.classSlotResizeDestructiveRemovalConfirmed =
+        nextClassSlotResizeDestructiveRemovalConfirmed;
+    }
+    if (hasRawClassSpellClearSlotIndices && normalizedClassSpellClearSlotIndices !== undefined) {
+      nextCreatureProperties.classSpellClearSlotIndices = normalizedClassSpellClearSlotIndices;
+    }
+    if (nextClassSpellClearConfirmed !== undefined) {
+      nextCreatureProperties.classSpellClearConfirmed = nextClassSpellClearConfirmed;
+    }
+    if (hasRawClassSpellRemovalTargets && normalizedClassSpellRemovalTargets !== undefined) {
+      nextCreatureProperties.classSpellRemovalTargets = normalizedClassSpellRemovalTargets;
+    }
+    if (nextClassSpellRemovalConfirmed !== undefined) {
+      nextCreatureProperties.classSpellRemovalConfirmed = nextClassSpellRemovalConfirmed;
+    }
+    if (hasRawClassSpellReorders && normalizedClassSpellReorders !== undefined) {
+      nextCreatureProperties.classSpellReorders = normalizedClassSpellReorders;
+    }
+    if (nextClassSpellReorderConfirmed !== undefined) {
+      nextCreatureProperties.classSpellReorderConfirmed = nextClassSpellReorderConfirmed;
     }
     if (nextTemplateEntries !== undefined) {
       nextCreatureProperties.templateEntries = nextTemplateEntries;
@@ -3543,7 +3782,15 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
 
     if (
       currentCreatureProperties?.firstName === nextFirstName &&
+      optionalCreatureLocalizedStringEntriesEqual(
+        currentCreatureProperties?.firstNameEntries,
+        nextFirstNameEntries,
+      ) &&
       (currentCreatureProperties?.lastName ?? "") === nextLastName &&
+      optionalCreatureLocalizedStringEntriesEqual(
+        currentCreatureProperties?.lastNameEntries,
+        nextLastNameEntries,
+      ) &&
       (currentCreatureProperties?.race ?? DEFAULT_CREATURE_PROPERTIES.race) === nextRace &&
       (currentCreatureProperties?.appearance ?? normalizedObject.resRef) === nextAppearance &&
       currentHasCreatureAppearanceType === Object.prototype.hasOwnProperty.call(
@@ -3564,6 +3811,10 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       ) &&
       currentCreatureProperties?.genderId === nextCreatureProperties.genderId &&
       (currentCreatureProperties?.description ?? "") === nextDescription &&
+      optionalCreatureLocalizedStringEntriesEqual(
+        currentCreatureProperties?.descriptionEntries,
+        nextDescriptionEntries,
+      ) &&
       (currentCreatureProperties?.challengeRating ?? DEFAULT_CREATURE_PROPERTIES.challengeRating) ===
         nextChallengeRating &&
       (currentCreatureProperties?.portraitResRef ?? "") === nextPortraitResRef &&
@@ -3604,6 +3855,27 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         nextLocalizedStrings
       ) &&
       areCreatureClassEntriesEqual(currentCreatureProperties?.classEntries, nextClassEntries) &&
+      currentCreatureProperties?.classIdentityDestructiveSpellClearConfirmed ===
+        nextClassIdentityDestructiveSpellClearConfirmed &&
+      currentCreatureProperties?.classSlotResizeDestructiveRemovalConfirmed ===
+        nextClassSlotResizeDestructiveRemovalConfirmed &&
+      areOptionalNumberVectorsEqual(
+        currentCreatureProperties?.classSpellClearSlotIndices,
+        hasRawClassSpellClearSlotIndices ? normalizedClassSpellClearSlotIndices : undefined,
+      ) &&
+      currentCreatureProperties?.classSpellClearConfirmed === nextClassSpellClearConfirmed &&
+      areCreatureClassSpellRemovalTargetsEqual(
+        currentCreatureProperties?.classSpellRemovalTargets,
+        hasRawClassSpellRemovalTargets ? normalizedClassSpellRemovalTargets : undefined,
+      ) &&
+      currentCreatureProperties?.classSpellRemovalConfirmed ===
+        nextClassSpellRemovalConfirmed &&
+      areCreatureClassSpellReordersEqual(
+        currentCreatureProperties?.classSpellReorders,
+        hasRawClassSpellReorders ? normalizedClassSpellReorders : undefined,
+      ) &&
+      currentCreatureProperties?.classSpellReorderConfirmed ===
+        nextClassSpellReorderConfirmed &&
       areCreatureTemplateEntriesEqual(
         currentCreatureProperties?.templateEntries,
         nextTemplateEntries

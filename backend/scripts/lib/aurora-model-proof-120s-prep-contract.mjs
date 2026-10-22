@@ -1671,6 +1671,7 @@ function sameEvidenceIdentity(left, right) {
   );
 }
 
+export { parseModuleName as parseModuleNameFromTitle };
 function parseModuleName(title) {
   const match = / - ([^\\/:*?"<>|]+\.mod)$/iu.exec(String(title ?? "").trim());
   return match?.[1] ?? null;

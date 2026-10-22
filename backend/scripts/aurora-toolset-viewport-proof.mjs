@@ -1,21 +1,25 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { finalizeViewportCapture, validateCaptureRequestBinding } from "./lib/aurora-viewport-capture-provenance.mjs";
 
 const [command, ...rawArgs] = process.argv.slice(2);
 const options = parseArgs(rawArgs);
 
 if (command === "capture") {
   const outPath = requiredPath(options.out, "--out");
+  const resultPath = options.resultOut ? requiredPath(options.resultOut, "--resultOut") : undefined;
+  if (resultPath && resultPath.toLowerCase() === outPath.toLowerCase()) throw new Error("--resultOut must differ from the PNG --out path.");
+  if (options.bindingFile && resultPath && existsSync(resultPath)) throw new Error("Bound capture sidecar already exists; choose a new --resultOut path.");
   const result = captureViewport({
     module: requiredText(options.module, "--module"),
     area: requiredText(options.area, "--area"),
     outPath,
     allowUniformScene: booleanOption(options.allowUniformScene),
+    requestBinding: options.bindingFile ? validateCaptureRequestBinding(JSON.parse(readFileSync(requiredExistingPath(options.bindingFile, "--bindingFile"), "utf8"))) : undefined,
   });
-  if (options.resultOut) {
-    const resultPath = requiredPath(options.resultOut, "--resultOut");
+  if (resultPath) {
     mkdirSync(dirname(resultPath), { recursive: true });
     writeFileSync(resultPath, `${JSON.stringify({ ...result, status: result.ok ? "verified" : "failed" }, null, 2)}\n`, "utf8");
   }
@@ -35,7 +39,8 @@ if (command === "capture") {
   throw new Error("Use: capture --module <name> --area <resref> --out <png>, or compare --before <png> --after <png>.");
 }
 
-function captureViewport({ module, area, outPath, allowUniformScene = false }) {
+function captureViewport({ module, area, outPath, allowUniformScene = false, requestBinding }) {
+  if (requestBinding && existsSync(outPath)) throw new Error("Bound capture output already exists; retain the original and choose a new --out path.");
   mkdirSync(dirname(outPath), { recursive: true });
   const source = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -87,7 +92,8 @@ function Has-SceneVariation([System.Drawing.Bitmap]$bitmap) {
   return ((($maxRed - $minRed) + ($maxGreen - $minGreen) + ($maxBlue - $minBlue)) -gt 6)
 }
 
-$processIds = @(Get-Process nwtoolset -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })
+$toolsetProcesses = @(Get-Process nwtoolset -ErrorAction SilentlyContinue)
+$processIds = @($toolsetProcesses | ForEach-Object { [uint32]$_.Id })
 if ($processIds.Count -ne 1) { throw "Expected exactly one nwtoolset process, found $($processIds.Count)." }
 $script:topWindows = @()
 $topEnum = [AuroraViewportProof+EnumWindowsProc]{
@@ -99,10 +105,11 @@ $topEnum = [AuroraViewportProof+EnumWindowsProc]{
   return $true
 }
 [void][AuroraViewportProof]::EnumWindows($topEnum, [IntPtr]::Zero)
-$moduleWindow = @($topWindows | Where-Object { $_.title.EndsWith(" - $expectedModule", [StringComparison]::OrdinalIgnoreCase) }) | Select-Object -First 1
-if ($null -eq $moduleWindow) { throw 'Expected exact loaded module window was not found.' }
+$moduleWindows = @($topWindows | Where-Object { $_.className -eq 'TfrmFrame' -and $_.title.EndsWith(" - $expectedModule", [StringComparison]::OrdinalIgnoreCase) })
+if ($moduleWindows.Count -ne 1) { throw 'Expected exactly one loaded module frame.' }
+$moduleWindow = $moduleWindows[0]
 $moduleScreen = [System.Windows.Forms.Screen]::FromHandle($moduleWindow.hwnd)
-if ($moduleScreen.DeviceName -ne $approvedScreenDeviceName) {
+if ($moduleScreen.DeviceName -ne $approvedScreenDeviceName -or $moduleScreen.Primary) {
   throw "Module window is not on the approved physical proof monitor: expected=$approvedScreenDeviceName, actual=$($moduleScreen.DeviceName)."
 }
 
@@ -136,10 +143,49 @@ $viewportEnum = [AuroraViewportProof+EnumWindowsProc]{
 $viewport = @($viewports | Sort-Object { $_.bounds.width * $_.bounds.height } -Descending) | Select-Object -First 1
 if ($null -eq $viewport) { throw 'Validated Area viewport was not found.' }
 
+function Get-CaptureIdentity {
+  $currentProcesses = @(Get-Process nwtoolset -ErrorAction SilentlyContinue)
+  if ($currentProcesses.Count -ne 1 -or $currentProcesses[0].Id -ne $toolsetProcesses[0].Id) { throw 'capture_process_changed' }
+  foreach ($ownedHandle in @($moduleWindow.hwnd, $viewers[0].hwnd, $viewport.hwnd)) {
+    [uint32]$ownedPid = 0
+    [void][AuroraViewportProof]::GetWindowThreadProcessId($ownedHandle, [ref]$ownedPid)
+    if ($ownedPid -ne $currentProcesses[0].Id -or -not [AuroraViewportProof]::IsWindowVisible($ownedHandle)) { throw 'capture_window_owner_changed' }
+  }
+  if ((Get-Class $moduleWindow.hwnd) -ne 'TfrmFrame' -or (Get-Class $viewers[0].hwnd) -ne 'TfrmViewerArea' -or (Get-Class $viewport.hwnd) -ne 'TScrollBox' -or -not [AuroraViewportProof]::IsChild($moduleWindow.hwnd, $viewers[0].hwnd) -or -not [AuroraViewportProof]::IsChild($viewers[0].hwnd, $viewport.hwnd)) { throw 'capture_window_hierarchy_changed' }
+  $currentScreen = [System.Windows.Forms.Screen]::FromHandle($moduleWindow.hwnd)
+  $currentViewport = Get-Rect $viewport.hwnd
+  $currentModuleTitle = Get-Text $moduleWindow.hwnd
+  $currentAreaTitle = Get-Text $viewers[0].hwnd
+  $currentAreaNormalized = $currentAreaTitle.Trim(); if ($currentAreaNormalized.StartsWith('-')) { $currentAreaNormalized = $currentAreaNormalized.Substring(1).Trim() }
+  if (-not $currentModuleTitle.EndsWith(" - $expectedModule", [StringComparison]::OrdinalIgnoreCase) -or -not [String]::Equals($currentAreaNormalized, $expectedArea, [StringComparison]::OrdinalIgnoreCase)) { throw 'capture_target_title_changed' }
+  $viewportRectangle = [System.Drawing.Rectangle]::new($currentViewport.left, $currentViewport.top, $currentViewport.width, $currentViewport.height)
+  if ($currentScreen.Primary -or $currentScreen.DeviceName -ne $approvedScreenDeviceName -or -not $currentScreen.Bounds.Contains($viewportRectangle)) { throw 'capture_viewport_outside_approved_display' }
+  [pscustomobject]@{
+    owner = [pscustomobject]@{ pid=[int]$currentProcesses[0].Id; startedAt=$currentProcesses[0].StartTime.ToUniversalTime().ToString('o'); frameHwnd=$moduleWindow.hwnd.ToInt64(); viewerHwnd=$viewers[0].hwnd.ToInt64(); viewportHwnd=$viewport.hwnd.ToInt64() }
+    viewport=$currentViewport; moduleTitle=$currentModuleTitle; areaViewerTitle=$currentAreaTitle
+    screenDevice=$currentScreen.DeviceName; screenPrimary=$currentScreen.Primary
+  }
+}
+$identityBefore = Get-CaptureIdentity
+if (($identityBefore.viewport | ConvertTo-Json -Compress) -ne ($viewport.bounds | ConvertTo-Json -Compress)) { throw 'capture_identity_changed' }
+if ($env:AURORA_VIEWPORT_PROOF_BINDING) {
+  $captureBinding = $env:AURORA_VIEWPORT_PROOF_BINDING | ConvertFrom-Json
+  foreach ($identityField in @('pid', 'frameHwnd')) {
+    if ($identityBefore.owner.$identityField -ne $captureBinding.owner.$identityField) { throw 'capture_owner_binding_mismatch' }
+  }
+  if ($captureBinding.owner.viewportHwnd -and $identityBefore.owner.viewportHwnd -ne $captureBinding.owner.viewportHwnd) { throw 'capture_owner_binding_mismatch' }
+  if ($captureBinding.owner.viewerHwnd -and $identityBefore.owner.viewerHwnd -ne $captureBinding.owner.viewerHwnd) { throw 'capture_owner_binding_mismatch' }
+  if ([DateTimeOffset]::Parse($identityBefore.owner.startedAt).ToUnixTimeMilliseconds() -ne [DateTimeOffset]::Parse($captureBinding.owner.startedAt).ToUnixTimeMilliseconds()) { throw 'capture_owner_binding_mismatch' }
+  if ([DateTimeOffset]::UtcNow -lt [DateTimeOffset]::Parse($captureBinding.notBefore)) { throw 'capture_predates_request' }
+}
+$captureStartedAt = [DateTime]::UtcNow.ToString('o')
+
 $viewportWidth = [int]$viewport.bounds.width; $viewportHeight = [int]$viewport.bounds.height
 $captureMethod = $null
 $screenCaptureStatus = 'not_attempted'
 $sceneContentStatus = 'unknown'
+$windowFromPointVerified = $false
+$ownershipBefore = @(); $ownershipAfter = @()
 $directBitmap = [System.Drawing.Bitmap]::new($viewportWidth, $viewportHeight, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
 $directGraphics = [System.Drawing.Graphics]::FromImage($directBitmap)
 $sourceDc = [AuroraViewportProof]::GetWindowDC($viewport.hwnd)
@@ -165,24 +211,28 @@ if ($null -eq $captureMethod) {
     [pscustomobject]@{ x=$inset; y=$viewportHeight-$inset },
     [pscustomobject]@{ x=$viewportWidth-$inset; y=$viewportHeight-$inset }
   )
-  $probeMismatches = @()
-  foreach ($offset in $probeOffsets) {
+  function Read-ViewportPointOwnership {
+   foreach ($offset in $probeOffsets) {
     $probePoint = New-Object 'AuroraViewportProof+POINT'
     $probePoint.X = [int]$viewport.bounds.left + [int]$offset.x
     $probePoint.Y = [int]$viewport.bounds.top + [int]$offset.y
     $probeHandle = [AuroraViewportProof]::WindowFromPoint($probePoint)
     [uint32]$probeProcessId = 0
     if ($probeHandle -ne [IntPtr]::Zero) { [void][AuroraViewportProof]::GetWindowThreadProcessId($probeHandle, [ref]$probeProcessId) }
-    $probeIsExpectedViewport = $probeHandle -eq $viewport.hwnd -or [AuroraViewportProof]::IsChild($viewers[0].hwnd, $probeHandle)
-    if (-not ($probeIsExpectedViewport -and ($processIds -contains $probeProcessId))) {
-      $probeMismatches += "x=$($offset.x),y=$($offset.y),hwnd=$($probeHandle.ToInt64()),class=$(Get-Class $probeHandle),pid=$probeProcessId"
-    }
+    $probeIsExpectedViewport = $probeHandle -eq $viewport.hwnd -or [AuroraViewportProof]::IsChild($viewport.hwnd, $probeHandle)
+    [pscustomobject]@{ x=[int]$offset.x; y=[int]$offset.y; hwnd=$probeHandle.ToInt64(); ownerPid=[int]$probeProcessId; owned=($probeIsExpectedViewport -and ($processIds -contains $probeProcessId)) }
+   }
   }
+  $ownershipBefore = @(Read-ViewportPointOwnership)
+  $probeMismatches = @($ownershipBefore | Where-Object { -not $_.owned })
   if ($probeMismatches.Count -eq 0) {
     $screenBitmap = [System.Drawing.Bitmap]::new($viewportWidth, $viewportHeight, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $screenGraphics = [System.Drawing.Graphics]::FromImage($screenBitmap)
     try {
       $screenGraphics.CopyFromScreen([int]$viewport.bounds.left, [int]$viewport.bounds.top, 0, 0, ([System.Drawing.Size]::new($viewportWidth, $viewportHeight)))
+      $ownershipAfter = @(Read-ViewportPointOwnership)
+      if (($ownershipBefore | ConvertTo-Json -Compress) -ne ($ownershipAfter | ConvertTo-Json -Compress) -or @($ownershipAfter | Where-Object { -not $_.owned }).Count -gt 0) { throw 'capture_physical_ownership_changed' }
+      $windowFromPointVerified = $true
       $hasSceneVariation = Has-SceneVariation $screenBitmap
       if ($hasSceneVariation -or $allowUniformScene) {
         $screenBitmap.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
@@ -228,13 +278,18 @@ if ($null -eq $captureMethod) {
   } finally { $viewportGraphics.Dispose(); $viewportBitmap.Dispose(); $captureBitmap.Dispose() }
 }
 
+$capturedAt = [DateTime]::UtcNow.ToString('o')
+$identityAfter = Get-CaptureIdentity
+if (($identityBefore | ConvertTo-Json -Depth 8 -Compress) -ne ($identityAfter | ConvertTo-Json -Depth 8 -Compress)) { throw 'capture_identity_changed' }
 [pscustomobject]@{
-  ok=$true; moduleTitle=$moduleWindow.title; areaViewerTitle=$viewers[0].title; viewport=$viewport.bounds; pngPath=$outPath
+  ok=$true; moduleTitle=$identityBefore.moduleTitle; areaViewerTitle=$identityBefore.areaViewerTitle; viewport=$identityBefore.viewport; pngPath=$outPath
+  captureStartedAt=$captureStartedAt; capturedAt=$capturedAt; owner=$identityBefore.owner; identityBefore=$identityBefore; identityAfter=$identityAfter
   sceneContentStatus=$sceneContentStatus
-  safety=[pscustomobject]@{ usesGlobalCursor=$false; usesGlobalKeyboard=$false; usesGlobalMouse=$false; method=$captureMethod; approvedPhysicalScreenDevice=$approvedScreenDeviceName; moduleScreenDevice=$moduleScreen.DeviceName; moduleScreenPrimary=$moduleScreen.Primary }
-} | ConvertTo-Json -Compress
+  safety=[pscustomobject]@{ usesGlobalCursor=$false; usesGlobalKeyboard=$false; usesGlobalMouse=$false; validatedTScrollBox=$true; windowFromPointVerified=$windowFromPointVerified; method=$captureMethod; approvedPhysicalScreenDevice=$approvedScreenDeviceName; moduleScreenDevice=$moduleScreen.DeviceName; moduleScreenPrimary=$moduleScreen.Primary }
+  physicalOwnership=if ($captureMethod.StartsWith('physical-pixel')) { [pscustomobject]@{ before=$ownershipBefore; after=$ownershipAfter; allStable=$windowFromPointVerified } } else { $null }
+} | ConvertTo-Json -Depth 8 -Compress
 `;
-  return runPowerShell(source, {
+  const result = runPowerShell(source, {
     AURORA_VIEWPORT_PROOF_MODULE: module,
     AURORA_VIEWPORT_PROOF_AREA: area.toLowerCase(),
     AURORA_VIEWPORT_PROOF_OUT: outPath,
@@ -243,7 +298,9 @@ if ($null -eq $captureMethod) {
     // a display number or from a window's coordinate sign.
     AURORA_VIEWPORT_PROOF_SCREEN_DEVICE: "\\\\.\\DISPLAY1",
     AURORA_VIEWPORT_PROOF_ALLOW_UNIFORM_SCENE: allowUniformScene ? "1" : "0",
+    AURORA_VIEWPORT_PROOF_BINDING: requestBinding ? JSON.stringify(requestBinding) : "",
   });
+  return finalizeViewportCapture(result, readFileSync(outPath), requestBinding);
 }
 
 function compareImages({ beforePath, afterPath }) {

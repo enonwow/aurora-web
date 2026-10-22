@@ -3,7 +3,10 @@ import {
   MAX_AREA_CREATURE_FIRST_NAME_ASCII_BYTES,
   MAX_AREA_CREATURE_LAST_NAME_ASCII_BYTES,
   MAX_AREA_CREATURE_DESCRIPTION_ASCII_BYTES,
+  areaCreatureLocalizedStringProfileForEntries,
   buildAreaCreatureNameInlineAsciiStorage,
+  cloneAreaCreatureLocalizedStringEntries,
+  readEditableAreaCreatureLocalizedStringStorage,
   readAreaCreatureNameInlineAsciiStorage,
   readExistingAreaCreatureNameLocalizedStringMutations,
 } from "../../src/modules/areas/domain/area-creature-localized-string-mutation";
@@ -62,6 +65,82 @@ describe("bounded existing Creature FirstName/LastName/Description localized-str
     });
     expect(buildAreaCreatureNameInlineAsciiStorage("Żółć", 256)).toBeUndefined();
     expect(buildAreaCreatureNameInlineAsciiStorage("A".repeat(257), 256)).toBeUndefined();
+  });
+
+  it("admits complete ordered inline-ASCII lists and retains unknown source identifiers", () => {
+    const storage = readEditableAreaCreatureLocalizedStringStorage({
+      present: true,
+      strRef: 0xffff_ffff,
+      entries: [
+        { languageId: 42, textBytesBase64: "TGVnYWN5" },
+        { languageId: 0, textBytesBase64: "R3VhcmQ=" },
+        { languageId: 10, textBytesBase64: "U3RyYXpuaWs=" },
+      ],
+    }, 256);
+
+    expect(storage).toEqual({
+      value: "Guard",
+      profile: "multi_entry_inline_ascii",
+      entries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Guard" },
+        { languageId: 10, text: "Straznik" },
+      ],
+    });
+    expect(areaCreatureLocalizedStringProfileForEntries(storage!.entries))
+      .toBe("multi_entry_inline_ascii");
+    expect(cloneAreaCreatureLocalizedStringEntries(storage!.entries)).not.toBe(storage!.entries);
+  });
+
+  it("reads complete ordered entry-list CAS and admits only retained or catalog identifiers", () => {
+    expect(readExistingAreaCreatureNameLocalizedStringMutations([{
+      field: "FirstName",
+      expectedValue: "Guard",
+      value: "Captain",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Guard" },
+      ],
+      valueEntries: [
+        { languageId: 0, text: "Captain" },
+        { languageId: 2, text: "Capitaine" },
+        { languageId: 42, text: "Legacy 2" },
+      ],
+    }])).toEqual([{
+      field: "FirstName",
+      expectedValue: "Guard",
+      value: "Captain",
+      expectedProfile: "multi_entry_inline_ascii",
+      expectedEntries: [
+        { languageId: 42, text: "Legacy" },
+        { languageId: 0, text: "Guard" },
+      ],
+      valueEntries: [
+        { languageId: 0, text: "Captain" },
+        { languageId: 2, text: "Capitaine" },
+        { languageId: 42, text: "Legacy 2" },
+      ],
+    }]);
+
+    for (const valueEntries of [
+      [{ languageId: 0, text: "Guard" }, { languageId: 41, text: "Unknown" }],
+      [{ languageId: 2, text: "Capitaine" }],
+      [{ languageId: 0, text: "Guard" }, { languageId: 2, text: "" }],
+      [{ languageId: 0, text: "Guard" }, { languageId: 0, text: "Duplicate" }],
+    ]) {
+      expect(readExistingAreaCreatureNameLocalizedStringMutations([{
+        field: "FirstName",
+        expectedValue: "Guard",
+        value: valueEntries.find((entry) => entry.languageId === 0)?.text ?? "",
+        expectedProfile: "multi_entry_inline_ascii",
+        expectedEntries: [
+          { languageId: 42, text: "Legacy" },
+          { languageId: 0, text: "Guard" },
+        ],
+        valueEntries,
+      }])).toBeNull();
+    }
   });
 
   it("reads and freezes changed pairs only in native FirstName, LastName, Description order", () => {

@@ -7949,9 +7949,10 @@ describe("CatalogApplicationService", () => {
     expect(result.placeable.renderPackage?.auroraModelGraph?.animationEvents).toEqual([
       {
         source: "aurora-mdl-ascii",
-        sourceModelAssetId: expect.any(String),
-        sourceModelFileName: "plc_ascii_keyed.mdl",
-        sourceModelObjectKey: "modules/current/models/plc_ascii_keyed.mdl",
+         sourceModelAssetId: expect.any(String),
+         sourceModelFileName: "plc_ascii_keyed.mdl",
+         sourceModelHash: expect.any(String),
+         sourceModelObjectKey: "modules/current/models/plc_ascii_keyed.mdl",
         time: expect.closeTo(0.25, 6),
         type: "detonate",
         animationName: "impact"

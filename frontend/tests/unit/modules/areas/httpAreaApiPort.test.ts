@@ -196,6 +196,142 @@ describe("HttpAreaApiPort", () => {
     expect(area.objects[0]?.triggerTransitionStorage).not.toBe(storage);
   });
 
+  it("maps exact Trigger core properties into a detached response", async () => {
+    const coreProperties = {
+      autoRemoveKey: 1,
+      factionId: 2,
+      cursorId: 3,
+      highlightHeight: 1.5,
+      keyName: " gate_key ",
+      portraitId: 4,
+      triggerType: -1,
+    };
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: areaDetailWithObject({
+        objectId: "trigger:0:core",
+        sourceIndex: 0,
+        kind: "trigger",
+        templateId: "newgeneric",
+        triggerCoreProperties: coreProperties,
+        x: 0,
+        y: 0,
+        z: 0,
+        bearing: 0,
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpAreaApiPort(
+      fetchStub as unknown as typeof fetch,
+      "http://localhost:3000/api/v1",
+    );
+
+    const area = await port.getAreaById("token", "area_trigger_core");
+
+    expect(area.objects[0]?.triggerCoreProperties).toStrictEqual(coreProperties);
+    expect(area.objects[0]?.triggerCoreProperties).not.toBe(coreProperties);
+  });
+
+  it("maps exact Trigger trap properties into a detached response", async () => {
+    const trapProperties = {
+      trapDetectable: 1,
+      trapDetectDc: 17,
+      trapDisarmable: 1,
+      disarmDc: 23,
+      trapFlag: 0,
+      trapOneShot: 1,
+      trapType: 7,
+    };
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: areaDetailWithObject({
+        objectId: "trigger:0:trap",
+        sourceIndex: 0,
+        kind: "trigger",
+        templateId: "newgeneric",
+        triggerTrapProperties: trapProperties,
+        x: 0,
+        y: 0,
+        z: 0,
+        bearing: 0,
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpAreaApiPort(
+      fetchStub as unknown as typeof fetch,
+      "http://localhost:3000/api/v1",
+    );
+
+    const area = await port.getAreaById("token", "area_trigger_trap");
+
+    expect(area.objects[0]?.triggerTrapProperties).toStrictEqual(trapProperties);
+    expect(area.objects[0]?.triggerTrapProperties).not.toBe(trapProperties);
+  });
+
+  it("maps one exact ordered Trigger VarTable provenance as a deeply detached value", async () => {
+    const triggerVariables = { expectedEntries: [
+      { sourceIndex: 0, name: "Counter", type: "int", value: 2 },
+      { sourceIndex: 1, name: "Scale", type: "float", value: Math.fround(1.5) },
+      { sourceIndex: 2, name: "State", type: "string", value: "armed" },
+    ] } as const;
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: areaDetailWithObject({
+        objectId: "trigger:0:variables",
+        sourceIndex: 0,
+        kind: "trigger",
+        templateId: "newgeneric",
+        triggerVariables,
+        x: 0,
+        y: 0,
+        z: 0,
+        bearing: 0,
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpAreaApiPort(
+      fetchStub as unknown as typeof fetch,
+      "http://localhost:3000/api/v1",
+    );
+
+    const area = await port.getAreaById("token", "area_trigger_variables");
+
+    expect(area.objects[0]?.triggerVariables).toEqual(triggerVariables);
+    expect(area.objects[0]?.triggerVariables).not.toBe(triggerVariables);
+    expect(area.objects[0]?.triggerVariables?.expectedEntries).not.toBe(
+      triggerVariables.expectedEntries,
+    );
+    expect(area.objects[0]?.triggerVariables?.expectedEntries[0]).not.toBe(
+      triggerVariables.expectedEntries[0],
+    );
+  });
+
+  it.each([
+    ["non-contiguous sourceIndex", {
+      expectedEntries: [{ sourceIndex: 1, name: "Counter", type: "int", value: 1 }],
+    }, "trigger"],
+    ["non-Trigger owner", { expectedEntries: [] }, "encounter"],
+  ])("rejects Trigger VarTable provenance with %s at the HTTP boundary", async (
+    _label,
+    triggerVariables,
+    kind,
+  ) => {
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: areaDetailWithObject({
+        objectId: "trigger:0:variables_bad",
+        sourceIndex: 0,
+        kind,
+        templateId: "newgeneric",
+        triggerVariables,
+        x: 0,
+        y: 0,
+        z: 0,
+        bearing: 0,
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpAreaApiPort(
+      fetchStub as unknown as typeof fetch,
+      "http://localhost:3000/api/v1",
+    );
+
+    await expect(port.getAreaById("token", "area_trigger_variables_bad"))
+      .rejects.toThrow();
+  });
+
   it("maps exact Encounter Faction DWord storage with the shared module catalog", async () => {
     const factionCatalog = {
       descriptor: {

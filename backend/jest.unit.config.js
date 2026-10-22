@@ -2,12 +2,15 @@
 module.exports = {
   moduleFileExtensions: ["js", "json", "ts"],
   rootDir: ".",
-  maxWorkers: 2,
+  maxWorkers: 1,
   testMatch: ["<rootDir>/test/unit/**/*.spec.ts"],
   modulePathIgnorePatterns: ["<rootDir>/.stryker-tmp"],
   testPathIgnorePatterns: ["<rootDir>/.stryker-tmp"],
   transform: {
-    "^.+\\.(t|j)s$": "ts-jest"
+    "^.+\\.ts$": ["ts-jest", {
+      tsconfig: { isolatedModules: true },
+      diagnostics: false,
+    }],
   },
   testEnvironment: "node"
 };

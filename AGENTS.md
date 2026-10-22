@@ -48,6 +48,42 @@
 - Keep CUD and tileset-rendering changes separate from unrelated dirty worktree changes.
 - Do not report an Area as `complete` merely because model contracts loaded; visual coverage and freshness gates must also pass.
 
+## Mandatory cleanup and knowledge consolidation after implementation
+
+- After every successfully verified implementation, before reporting completion,
+  update the structured project knowledge and actually remove all redundant
+  task evidence, artifacts, temporary files, caches, logs, abandoned attempts
+  and superseded builds. A cleanup plan alone is not completion.
+- First extend the existing canonical domain documentation with a reproducible
+  recipe: goal, source revision, input identities, prerequisites/tool versions,
+  exact commands and configuration, expected results, verification commands
+  and acceptance criteria. Update the relevant documentation index.
+- Record encountered errors, symptoms, established causes, unsuccessful
+  approaches, the successful fix, prevention checks and remaining limitations.
+  Separate verified facts from hypotheses so later work can reproduce success
+  and avoid repeating mistakes.
+- Consolidate repeated guidance into one canonical source and clearly identify
+  superseded instructions. Essential knowledge must not remain only in chat,
+  scattered notes, screenshots or raw logs.
+- Follow global AGENTS.md section 2a: use one current working set and shared
+  resources per input version, with one necessary recovery point. Additional
+  full copies need a recorded owner, purpose, size and removal condition.
+  Retire redundant historical materializations through the maintenance procedure;
+  a `proof` or `frozen` label alone does not require retaining every copy forever.
+- After documenting the result, delete all reviewed task artifacts that are no
+  longer needed. Retain only the minimum evidence required by active acceptance,
+  regression, provenance or replay contracts, with an explicit retention reason.
+  Documentation or a hash does not replace an original capture still required
+  to substantiate a result.
+- Preserve source, user changes, active data, required fixtures, current
+  deliverables and files used by another active task. Check ownership and
+  references before deletion; verify retained inputs and documentation links
+  afterwards. Never use blanket deletion or Git reset/checkout/clean.
+- Report what was documented, removed and retained, why anything remains, and
+  how much space was reclaimed. If a closure step is blocked, name it explicitly
+  instead of claiming full completion. Follow canonical rule 36 and
+  [the maintenance procedure](docs/maintenance.md).
+
 ## Resource-safe test execution
 
 - Mutation tests are strictly optional and opt-in. Do not run Stryker,

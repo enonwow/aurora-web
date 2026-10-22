@@ -37,6 +37,169 @@ describe("Area workspace event-script draft boundary", () => {
   });
 });
 
+describe("Area workspace Placeable ordered inline localized-string boundary", () => {
+  function placeableWithStrings() {
+    const object = createNewSceneObject("placeables", 1, 2, 3);
+    object.source = {
+      type: "aurora_git",
+      sourceKind: "placeable",
+      sourceIndex: 0,
+      sourceObjectId: "obj_placeable_0",
+      placeableLocalizedStrings: {
+        locName: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [
+            { languageId: 42, textBytesBase64: "UmV0YWluZWQ=" },
+            { languageId: 0, textBytesBase64: "Q2hlc3Q=" },
+          ],
+        },
+        description: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [{ languageId: 0, textBytesBase64: "U3RvcmFnZQ==" }],
+        },
+      },
+    };
+    object.placeableProperties = {
+      ...object.placeableProperties!,
+      localizedName: "Chest 2",
+      localizedNameEntries: [
+        { languageId: 0, text: "Chest 2" },
+        { languageId: 42, text: "Retained edited" },
+        { languageId: 2, text: "Coffre" },
+      ],
+      description: "",
+      descriptionEntries: [],
+    };
+    return object;
+  }
+
+  it("retains one complete ordered list target with source-bound and catalog-added identifiers", () => {
+    const value = { ...scene(), objects: [placeableWithStrings()] };
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it.each([
+    ["scalar/list mismatch", (object: ReturnType<typeof placeableWithStrings>) => {
+      object.placeableProperties!.localizedName = "Different";
+    }],
+    ["unknown new identifier", (object: ReturnType<typeof placeableWithStrings>) => {
+      object.placeableProperties!.localizedNameEntries = [
+        { languageId: 0, text: "Chest 2" },
+        { languageId: 77, text: "Invented" },
+      ];
+    }],
+    ["empty new catalog entry", (object: ReturnType<typeof placeableWithStrings>) => {
+      object.placeableProperties!.localizedNameEntries = [
+        { languageId: 0, text: "Chest 2" },
+        { languageId: 2, text: "" },
+      ];
+    }],
+    ["alternate-only target", (object: ReturnType<typeof placeableWithStrings>) => {
+      object.placeableProperties!.localizedName = "";
+      object.placeableProperties!.localizedNameEntries = [
+        { languageId: 42, text: "Retained" },
+      ];
+    }],
+    ["wrong source ordinal", (object: ReturnType<typeof placeableWithStrings>) => {
+      object.source!.sourceIndex = -1;
+    }],
+  ])("rejects %s", (_label, mutate) => {
+    const object = placeableWithStrings();
+    mutate(object);
+    expect(parseAreaScene({ ...scene(), objects: [object] })).toBeNull();
+  });
+});
+
+describe("Area workspace Item ordered inline localized-string boundary", () => {
+  function itemWithStrings() {
+    const object = createNewSceneObject("items", 1, 2, 3);
+    object.source = {
+      type: "aurora_git",
+      sourceKind: "item",
+      sourceIndex: 0,
+      sourceObjectId: "obj_item_0",
+      itemLocalizedStrings: {
+        localizedName: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [
+            { languageId: 42, textBytesBase64: "UmV0YWluZWQ=" },
+            { languageId: 0, textBytesBase64: "U3dvcmQ=" },
+          ],
+        },
+        description: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [{ languageId: 0, textBytesBase64: "RGVzY3JpcHRpb24=" }],
+        },
+        identifiedDescription: {
+          present: true,
+          strRef: 0xffff_ffff,
+          entries: [],
+        },
+      },
+    };
+    object.itemProperties = {
+      ...object.itemProperties,
+      localizedName: "Sword 2",
+      localizedNameEntries: [
+        { languageId: 0, text: "Sword 2" },
+        { languageId: 42, text: "Retained edited" },
+        { languageId: 2, text: "Schwert" },
+      ],
+      description: "",
+      descriptionEntries: [],
+      identifiedDescription: "",
+      identifiedDescriptionEntries: [],
+    };
+    return object;
+  }
+
+  it("retains complete ordered targets with source-bound and catalog-added identifiers", () => {
+    const value = { ...scene(), objects: [itemWithStrings()] };
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it.each([
+    ["scalar/list mismatch", (object: ReturnType<typeof itemWithStrings>) => {
+      object.itemProperties!.localizedName = "Different";
+    }],
+    ["unknown new identifier", (object: ReturnType<typeof itemWithStrings>) => {
+      object.itemProperties!.localizedNameEntries = [
+        { languageId: 0, text: "Sword 2" },
+        { languageId: 77, text: "Invented" },
+      ];
+    }],
+    ["empty new catalog entry", (object: ReturnType<typeof itemWithStrings>) => {
+      object.itemProperties!.localizedNameEntries = [
+        { languageId: 0, text: "Sword 2" },
+        { languageId: 2, text: "" },
+      ];
+    }],
+    ["alternate-only target", (object: ReturnType<typeof itemWithStrings>) => {
+      object.itemProperties!.localizedName = "";
+      object.itemProperties!.localizedNameEntries = [
+        { languageId: 42, text: "Retained" },
+      ];
+    }],
+    ["wrong source ordinal", (object: ReturnType<typeof itemWithStrings>) => {
+      object.source!.sourceIndex = -1;
+    }],
+  ])("rejects %s", (_label, mutate) => {
+    const object = itemWithStrings();
+    mutate(object);
+    expect(parseAreaScene({ ...scene(), objects: [object] })).toBeNull();
+  });
+
+  it("rejects Item entry targets without exact source provenance", () => {
+    const object = itemWithStrings();
+    delete object.source!.itemLocalizedStrings;
+    expect(parseAreaScene({ ...scene(), objects: [object] })).toBeNull();
+  });
+});
+
 describe("Area workspace Encounter CreatureList.SingleSpawn boundary", () => {
   it("retains only a target with the exact immutable ordered CreatureList identity", () => {
     const object = createNewSceneObject("encounters", 1, 2, 1);
@@ -4326,6 +4489,108 @@ describe("Area workspace Creature name localized-string draft boundary", () => {
     expect(parseAreaScene(value)).toEqual(value);
   });
 
+  it("retains complete ordered Creature entry targets with source IDs and catalog additions", () => {
+    const value = {
+      ...scene(),
+      objects: [creatureSceneObject({
+        source: {
+          ...exactSource,
+          creatureLocalizedStrings: {
+            ...exactSource.creatureLocalizedStrings,
+            firstName: {
+              present: true,
+              strRef: 0xffff_ffff,
+              entries: [
+                { languageId: 42, textBytesBase64: "TGVnYWN5" },
+                { languageId: 0, textBytesBase64: "R3VhcmQ=" },
+              ],
+            },
+          },
+        },
+        creatureProperties: {
+          firstName: "Captain",
+          firstNameEntries: [
+            { languageId: 0, text: "Captain" },
+            { languageId: 2, text: "Capitaine" },
+            { languageId: 42, text: "Legacy edited" },
+          ],
+          lastName: "Aribeth",
+          lastNameEntries: [{ languageId: 0, text: "Aribeth" }],
+          description: "",
+          descriptionEntries: [],
+        },
+      })],
+    };
+
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it.each([
+    ["entry target without exact source", {
+      source: undefined,
+      creatureProperties: {
+        firstName: "Captain",
+        firstNameEntries: [{ languageId: 0, text: "Captain" }],
+        lastName: "",
+      },
+    }],
+    ["unknown new identifier", {
+      source: exactSource,
+      creatureProperties: {
+        firstName: "Captain",
+        firstNameEntries: [
+          { languageId: 0, text: "Captain" },
+          { languageId: 77, text: "Unknown" },
+        ],
+        lastName: "",
+        lastNameEntries: [],
+        description: "Old description",
+        descriptionEntries: [{ languageId: 0, text: "Old description" }],
+      },
+    }],
+    ["alternate-only target", {
+      source: exactSource,
+      creatureProperties: {
+        firstName: "",
+        firstNameEntries: [{ languageId: 10, text: "Straznik" }],
+        lastName: "",
+        lastNameEntries: [],
+        description: "Old description",
+        descriptionEntries: [{ languageId: 0, text: "Old description" }],
+      },
+    }],
+    ["duplicate identifier", {
+      source: exactSource,
+      creatureProperties: {
+        firstName: "Captain",
+        firstNameEntries: [
+          { languageId: 0, text: "Captain" },
+          { languageId: 0, text: "Again" },
+        ],
+        lastName: "",
+        lastNameEntries: [],
+        description: "Old description",
+        descriptionEntries: [{ languageId: 0, text: "Old description" }],
+      },
+    }],
+    ["scalar-list mismatch", {
+      source: exactSource,
+      creatureProperties: {
+        firstName: "Captain",
+        firstNameEntries: [{ languageId: 0, text: "Different" }],
+        lastName: "",
+        lastNameEntries: [],
+        description: "Old description",
+        descriptionEntries: [{ languageId: 0, text: "Old description" }],
+      },
+    }],
+  ])("rejects %s", (_label, overrides) => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [creatureSceneObject(overrides)],
+    })).toBeNull();
+  });
+
   it.each([
     ["wrong family", {
       source: { ...exactSource, sourceKind: "placeable" },
@@ -5640,6 +5905,184 @@ describe("Area workspace Trigger transition-storage draft boundary", () => {
   });
 });
 
+describe("Area workspace Trigger core-properties draft boundary", () => {
+  const coreProperties = {
+    autoRemoveKey: 0,
+    factionId: 1,
+    cursorId: 2,
+    highlightHeight: Math.fround(1.5),
+    keyName: " source_key ",
+    portraitId: 3,
+    triggerType: 0,
+  } as const;
+  const exactSource = {
+    type: "aurora_git",
+    sourceKind: "trigger",
+    sourceIndex: 0,
+    sourceObjectId: "obj_trigger_0",
+    triggerCoreProperties: coreProperties,
+  } as const;
+
+  function triggerObject(source: unknown, target?: unknown) {
+    const object = createNewSceneObject("triggers", 1, 2, 1) as any;
+    object.resRef = "newgeneric";
+    object.source = source;
+    if (target !== undefined) object.triggerCoreProperties = target;
+    return object;
+  }
+
+  it("retains exact source and target tuples without semantic coercion", () => {
+    const target = { ...coreProperties, autoRemoveKey: 1, keyName: " target_key " };
+    const value = { ...scene(), objects: [triggerObject(exactSource, target)] };
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it("keeps exact source provenance preserve-only when no target exists", () => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [triggerObject(exactSource)],
+    })).not.toBeNull();
+  });
+
+  it.each([
+    ["target without source", { ...exactSource, triggerCoreProperties: undefined }, coreProperties],
+    ["wrong family", { ...exactSource, sourceKind: "encounter" }, coreProperties],
+    ["missing ordinal", { ...exactSource, sourceIndex: undefined }, coreProperties],
+    ["partial source", {
+      ...exactSource,
+      triggerCoreProperties: { autoRemoveKey: 0 },
+    }, coreProperties],
+    ["partial target", exactSource, { ...coreProperties, triggerType: undefined }],
+    ["out-of-range byte", exactSource, { ...coreProperties, cursorId: 256 }],
+    ["non-f32 height", exactSource, { ...coreProperties, highlightHeight: 1 / 3 }],
+    ["NUL key", exactSource, { ...coreProperties, keyName: "bad\0key" }],
+  ])("rejects %s", (_label, source, target) => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [triggerObject(source, target)],
+    })).toBeNull();
+  });
+});
+
+describe("Area workspace Trigger trap-properties draft boundary", () => {
+  const trapProperties = {
+    trapDetectable: 1,
+    trapDetectDc: 0,
+    trapDisarmable: 1,
+    disarmDc: 15,
+    trapFlag: 0,
+    trapOneShot: 1,
+    trapType: 0,
+  } as const;
+  const exactSource = {
+    type: "aurora_git",
+    sourceKind: "trigger",
+    sourceIndex: 0,
+    sourceObjectId: "obj_trigger_0",
+    triggerTrapProperties: trapProperties,
+  } as const;
+
+  function triggerObject(source: unknown, target?: unknown) {
+    const object = createNewSceneObject("triggers", 1, 2, 1) as any;
+    object.resRef = "newgeneric";
+    object.source = source;
+    if (target !== undefined) object.triggerTrapProperties = target;
+    return object;
+  }
+
+  it("retains exact source and target tuples without semantic coercion", () => {
+    const target = { ...trapProperties, trapFlag: 1, trapType: 7 };
+    const value = { ...scene(), objects: [triggerObject(exactSource, target)] };
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it("keeps exact source provenance preserve-only when no target exists", () => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [triggerObject(exactSource)],
+    })).not.toBeNull();
+  });
+
+  it.each([
+    ["target without source", { ...exactSource, triggerTrapProperties: undefined }, trapProperties],
+    ["wrong family", { ...exactSource, sourceKind: "encounter" }, trapProperties],
+    ["missing ordinal", { ...exactSource, sourceIndex: undefined }, trapProperties],
+    ["partial source", {
+      ...exactSource,
+      triggerTrapProperties: { trapFlag: 0 },
+    }, trapProperties],
+    ["partial target", exactSource, { ...trapProperties, trapType: undefined }],
+    ["negative byte", exactSource, { ...trapProperties, disarmDc: -1 }],
+    ["out-of-range byte", exactSource, { ...trapProperties, trapType: 256 }],
+  ])("rejects %s", (_label, source, target) => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [triggerObject(source, target)],
+    })).toBeNull();
+  });
+});
+
+describe("Area workspace Trigger VarTable draft boundary", () => {
+  const provenance = { expectedEntries: [
+    { sourceIndex: 0, name: "Counter", type: "int", value: 1 },
+    { sourceIndex: 1, name: "Counter", type: "int", value: 2 },
+    { sourceIndex: 2, name: "Scale", type: "float", value: Math.fround(1.5) },
+    { sourceIndex: 3, name: "State", type: "string", value: "armed" },
+  ] } as const;
+  const exactSource = {
+    type: "aurora_git",
+    sourceKind: "trigger",
+    sourceIndex: 0,
+    sourceObjectId: "obj_trigger_0",
+    triggerVariables: provenance,
+  } as const;
+
+  function triggerObject(source: unknown, target?: unknown) {
+    const object = createNewSceneObject("triggers", 1, 2, 1) as any;
+    object.resRef = "newgeneric";
+    object.source = source;
+    if (target !== undefined) object.triggerVariables = target;
+    return object;
+  }
+
+  it("retains one complete ordered source and target including duplicate names", () => {
+    const target = [
+      { name: "Counter", type: "int", value: 2 },
+      { name: "Counter", type: "int", value: 1 },
+      { name: "State", type: "string", value: "disarmed" },
+    ];
+    const value = { ...scene(), objects: [triggerObject(exactSource, target)] };
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it("rejects exact Trigger VarTable provenance without an explicit target", () => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [triggerObject(exactSource)],
+    })).toBeNull();
+  });
+
+  it.each([
+    ["target without source", { ...exactSource, triggerVariables: undefined }, []],
+    ["wrong family", { ...exactSource, sourceKind: "encounter" }, []],
+    ["missing ordinal", { ...exactSource, sourceIndex: undefined }, []],
+    ["non-contiguous sourceIndex", {
+      ...exactSource,
+      triggerVariables: { expectedEntries: [
+        { sourceIndex: 1, name: "Counter", type: "int", value: 1 },
+      ] },
+    }, []],
+    ["non-float32 target", exactSource, [
+      { name: "Scale", type: "float", value: 0.1 },
+    ]],
+  ])("rejects %s", (_label, source, target) => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [triggerObject(source, target)],
+    })).toBeNull();
+  });
+});
+
 describe("Area workspace Trigger/Encounter polygon draft boundary", () => {
   const sourceGeometry = polygon([[0, 0, 0], [4, 0, 0], [0, 2, 0]]);
   const targetGeometry = polygon([[-1, 0, 0], [4, 0, 0], [0, 3, 0.5]]);
@@ -6665,6 +7108,262 @@ describe("Area workspace Creature class-identity destructive-clear boundary", ()
       },
     },
   };
+
+  it("retains a confirmed canonical spell-list clear for an unchanged source class slot", () => {
+    const value = {
+      ...scene(),
+      objects: [creatureSceneObject({
+        source,
+        creatureProperties: {
+          classEntries: [{ classId: 4, className: "Fighter", level: 3 }],
+          classSpellClearSlotIndices: [0],
+          classSpellClearConfirmed: true,
+          advancedSettings: { startingPackageId: 0 },
+          statistics: {
+            abilityScores: { constitution: 14 },
+            baseHitPoints: 10,
+            hitPointBonuses: 9,
+            currentHitPoints: 10,
+            maxHitPoints: 19,
+          },
+        },
+      })],
+    };
+
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it("retains exact confirmed spell-entry removal targets for an unchanged class roster", () => {
+    const detailedSource = {
+      ...source,
+      creatureClassIdentityState: {
+        ...source.creatureClassIdentityState,
+        entries: [{
+          ...source.creatureClassIdentityState.entries[0],
+          spellLists: [{
+            listKind: "memorized",
+            spellLevel: 0,
+            entries: [
+              { spellId: 11, spellMetaMagic: 0, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+              { spellId: 12, spellMetaMagic: 2, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+              { spellId: 13, spellMetaMagic: 0, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+            ],
+          }, {
+            listKind: "memorized",
+            spellLevel: 1,
+            entries: [],
+          }],
+        }],
+      },
+    } as const;
+    const value = {
+      ...scene(),
+      objects: [creatureSceneObject({
+        source: detailedSource,
+        creatureProperties: {
+          classEntries: [{ classId: 4, className: "Fighter", level: 3 }],
+          classSpellRemovalTargets: [{
+            classSlotIndex: 0,
+            listKind: "memorized",
+            spellLevel: 0,
+            entryIndex: 1,
+          }],
+          classSpellRemovalConfirmed: true,
+          advancedSettings: { startingPackageId: 0 },
+          statistics: {
+            abilityScores: { constitution: 14 },
+            baseHitPoints: 10,
+            hitPointBonuses: 9,
+            currentHitPoints: 10,
+            maxHitPoints: 19,
+          },
+        },
+      })],
+    };
+
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it("retains exact confirmed same-list spell-entry reorders for an unchanged class roster", () => {
+    const detailedSource = {
+      ...source,
+      creatureClassIdentityState: {
+        ...source.creatureClassIdentityState,
+        entries: [{
+          ...source.creatureClassIdentityState.entries[0],
+          canonicalSpellListFieldCount: 1,
+          spellEntryCount: 3,
+          spellLists: [{
+            listKind: "memorized",
+            spellLevel: 0,
+            entries: [
+              { spellId: 11, spellMetaMagic: 0, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+              { spellId: 12, spellMetaMagic: 2, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+              { spellId: 13, spellMetaMagic: 0, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+            ],
+          }],
+        }],
+      },
+    } as const;
+    const value = {
+      ...scene(),
+      objects: [creatureSceneObject({
+        source: detailedSource,
+        creatureProperties: {
+          classEntries: [{ classId: 4, className: "Fighter", level: 3 }],
+          classSpellReorders: [{
+            classSlotIndex: 0,
+            listKind: "memorized",
+            spellLevel: 0,
+            entryOrder: [2, 0, 1],
+          }],
+          classSpellReorderConfirmed: true,
+          advancedSettings: { startingPackageId: 0 },
+          statistics: {
+            abilityScores: { constitution: 14 },
+            baseHitPoints: 10,
+            hitPointBonuses: 9,
+            currentHitPoints: 10,
+            maxHitPoints: 19,
+          },
+        },
+      })],
+    };
+
+    expect(parseAreaScene(value)).toEqual(value);
+  });
+
+  it.each([
+    { entryOrder: [0, 1, 2], confirmed: true },
+    { entryOrder: [1, 0], confirmed: true },
+    { entryOrder: [2, 0, 0], confirmed: true },
+    { entryOrder: [2, 0, 1], confirmed: false },
+  ])("rejects invalid same-list spell-entry reorder profile %#", ({ entryOrder, confirmed }) => {
+    const detailedSource = {
+      ...source,
+      creatureClassIdentityState: {
+        ...source.creatureClassIdentityState,
+        entries: [{
+          ...source.creatureClassIdentityState.entries[0],
+          canonicalSpellListFieldCount: 1,
+          spellEntryCount: 3,
+          spellLists: [{
+            listKind: "memorized",
+            spellLevel: 0,
+            entries: [
+              { spellId: 11, spellMetaMagic: 0, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+              { spellId: 12, spellMetaMagic: 2, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+              { spellId: 13, spellMetaMagic: 0, spellFlags: 1,
+                opaqueSiblingFieldCount: 0 },
+            ],
+          }],
+        }],
+      },
+    } as const;
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [creatureSceneObject({
+        source: detailedSource,
+        creatureProperties: {
+          classEntries: [{ classId: 4, className: "Fighter", level: 3 }],
+          classSpellReorders: [{
+            classSlotIndex: 0,
+            listKind: "memorized",
+            spellLevel: 0,
+            entryOrder,
+          }],
+          classSpellReorderConfirmed: confirmed,
+          advancedSettings: { startingPackageId: 0 },
+          statistics: {
+            abilityScores: { constitution: 14 },
+            baseHitPoints: 10,
+            hitPointBonuses: 9,
+            currentHitPoints: 10,
+            maxHitPoints: 19,
+          },
+        },
+      })],
+    })).toBeNull();
+  });
+
+  it("rejects an absent or unconfirmed exact spell-entry removal target", () => {
+    const detailedSource = {
+      ...source,
+      creatureClassIdentityState: {
+        ...source.creatureClassIdentityState,
+        entries: [{
+          ...source.creatureClassIdentityState.entries[0],
+          canonicalSpellListFieldCount: 1,
+          spellEntryCount: 1,
+          spellLists: [{
+            listKind: "memorized",
+            spellLevel: 0,
+            entries: [{ spellId: 11, spellMetaMagic: 0, spellFlags: 1,
+              opaqueSiblingFieldCount: 0 }],
+          }],
+        }],
+      },
+    } as const;
+    for (const profile of [
+      { target: { classSlotIndex: 0, listKind: "memorized", spellLevel: 0, entryIndex: 1 },
+        confirmed: true },
+      { target: { classSlotIndex: 0, listKind: "memorized", spellLevel: 0, entryIndex: 0 },
+        confirmed: false },
+    ] as const) {
+      expect(parseAreaScene({
+        ...scene(),
+        objects: [creatureSceneObject({
+          source: detailedSource,
+          creatureProperties: {
+            classEntries: [{ classId: 4, className: "Fighter", level: 3 }],
+            classSpellRemovalTargets: [profile.target],
+            classSpellRemovalConfirmed: profile.confirmed,
+          },
+        })],
+      })).toBeNull();
+    }
+  });
+
+  it.each([
+    { classSpellClearSlotIndices: [0], classSpellClearConfirmed: false },
+    { classSpellClearSlotIndices: [0, 0], classSpellClearConfirmed: true },
+    { classSpellClearSlotIndices: [1], classSpellClearConfirmed: true },
+  ])("rejects an invalid canonical spell-list clear profile %#", (profile) => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [creatureSceneObject({
+        source,
+        creatureProperties: {
+          classEntries: [{ classId: 4, className: "Fighter", level: 3 }],
+          ...profile,
+        },
+      })],
+    })).toBeNull();
+  });
+
+  it("rejects a canonical spell-list clear composed with a class identity edit", () => {
+    expect(parseAreaScene({
+      ...scene(),
+      objects: [creatureSceneObject({
+        source,
+        creatureProperties: {
+          classEntries: [{ classId: 5, className: "Wizard", level: 3 }],
+          classIdentityDestructiveSpellClearConfirmed: true,
+          classSpellClearSlotIndices: [0],
+          classSpellClearConfirmed: true,
+          advancedSettings: { startingPackageId: 2 },
+        },
+      })],
+    })).toBeNull();
+  });
 
   it("retains one confirmed same-roster target with unchanged levels and a bounded package", () => {
     const value = {

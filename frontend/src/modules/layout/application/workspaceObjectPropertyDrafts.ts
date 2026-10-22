@@ -5,11 +5,13 @@ import type {
   SceneObjectPlaceableInventoryItemReference
 } from "../contracts";
 import type {
+  SceneObjectCreatureProperties,
   SceneObjectItemArmorParts,
   SceneObjectItemBlueprintEquipmentEntry,
   SceneObjectItemBlueprintInventoryEntry,
   SceneObjectItemInventoryTargetEntry,
   SceneObjectItemMaterialColors,
+  SceneObjectItemProperties,
   SceneObjectItemPropertyEntry,
   SceneObjectItemVariableTargetEntry,
   SceneObjectPlaceableProperties,
@@ -541,6 +543,7 @@ export const CREATURE_APPEARANCE_EXTRA_PAIR = {
 
 export interface PlaceablePropertiesDraft {
   name: string;
+  localizedNameEntries?: NonNullable<SceneObjectPlaceableProperties["localizedNameEntries"]>;
   tag: string;
   resRef: string;
   appearanceType?: number;
@@ -600,6 +603,7 @@ export interface PlaceablePropertiesDraft {
     treasureModelRow?: number;
   };
   description: string;
+  descriptionEntries?: NonNullable<SceneObjectPlaceableProperties["descriptionEntries"]>;
   comments: string;
 }
 
@@ -621,10 +625,15 @@ export interface ItemPropertiesDraft {
   resRef: string;
   appearanceType?: number;
   localizedName: string;
+  localizedNameEntries?: NonNullable<SceneObjectItemProperties["localizedNameEntries"]>;
   localizedNameStrRef?: number;
   description: string;
+  descriptionEntries?: NonNullable<SceneObjectItemProperties["descriptionEntries"]>;
   descriptionStrRef?: number;
   identifiedDescription: string;
+  identifiedDescriptionEntries?: NonNullable<
+    SceneObjectItemProperties["identifiedDescriptionEntries"]
+  >;
   identifiedDescriptionStrRef?: number;
   comments: string;
   paletteId?: number;
@@ -840,7 +849,9 @@ export interface CreaturePropertiesDraft {
   inventoryControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
   equippedItemsControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
   firstName: string;
+  firstNameEntries?: NonNullable<SceneObjectCreatureProperties["firstNameEntries"]>;
   lastName: string;
+  lastNameEntries?: NonNullable<SceneObjectCreatureProperties["lastNameEntries"]>;
   tag: string;
   race: string;
   appearance: string;
@@ -850,6 +861,7 @@ export interface CreaturePropertiesDraft {
   gender: string;
   genderId?: number;
   description: string;
+  descriptionEntries?: NonNullable<SceneObjectCreatureProperties["descriptionEntries"]>;
   challengeRating: number;
   portraitResRef: string;
   portraitId?: number;
@@ -859,6 +871,16 @@ export interface CreaturePropertiesDraft {
   classEntries: Array<{ classId?: number; className: string; level: number }>;
   classIdentityDestructiveSpellClearConfirmed: boolean;
   classSlotResizeDestructiveRemovalConfirmed: boolean;
+  classSpellClearSlotIndices: number[];
+  classSpellClearConfirmed: boolean;
+  classSpellRemovalTargets: NonNullable<
+    SceneObjectCreatureProperties["classSpellRemovalTargets"]
+  >;
+  classSpellRemovalConfirmed: boolean;
+  classSpellReorders: NonNullable<
+    SceneObjectCreatureProperties["classSpellReorders"]
+  >;
+  classSpellReorderConfirmed: boolean;
   templateEntries: Array<{ templateId?: number }>;
   defaultPackage: string;
   strength: number;
@@ -1195,10 +1217,19 @@ export function buildItemPropertiesDraft(source: SceneObject): ItemPropertiesDra
     tag: source.tag,
     resRef: source.resRef,
     localizedName: item?.localizedName ?? "",
+    localizedNameEntries: item?.localizedNameEntries
+      ? item.localizedNameEntries.map((entry) => ({ ...entry }))
+      : undefined,
     localizedNameStrRef: item?.localizedNameStrRef,
     description: item?.description ?? "",
+    descriptionEntries: item?.descriptionEntries
+      ? item.descriptionEntries.map((entry) => ({ ...entry }))
+      : undefined,
     descriptionStrRef: item?.descriptionStrRef,
     identifiedDescription: item?.identifiedDescription ?? "",
+    identifiedDescriptionEntries: item?.identifiedDescriptionEntries
+      ? item.identifiedDescriptionEntries.map((entry) => ({ ...entry }))
+      : undefined,
     identifiedDescriptionStrRef: item?.identifiedDescriptionStrRef,
     comments: item?.comments ?? "",
     paletteId: item?.paletteId,
@@ -1357,6 +1388,13 @@ export function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePro
   const advancedSettings = placeableProperties?.advancedSettings;
   return {
     name: placeableProperties?.localizedName ?? resolveSceneObjectName(source),
+    ...(placeableProperties?.localizedNameEntries
+      ? {
+          localizedNameEntries: placeableProperties.localizedNameEntries.map(
+            (entry) => ({ ...entry }),
+          ),
+        }
+      : {}),
     tag: source.tag,
     resRef: source.resRef,
     appearanceType:
@@ -1436,6 +1474,13 @@ export function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePro
         : { treasureModelRow: advancedSettings.treasureModelRow })
     },
     description: placeableProperties?.description ?? "",
+    ...(placeableProperties?.descriptionEntries
+      ? {
+          descriptionEntries: placeableProperties.descriptionEntries.map(
+            (entry) => ({ ...entry }),
+          ),
+        }
+      : {}),
     comments: placeableProperties?.comments ?? ""
   };
 }
@@ -2262,7 +2307,13 @@ export function buildCreaturePropertiesDraft(
       : "PRESERVE_ONLY",
     equippedItemsControlState: equipmentEditable ? "ACTIVE_NOW" : "PRESERVE_ONLY",
     firstName: creature?.firstName ?? resolveSceneObjectName(source),
+    firstNameEntries: creature?.firstNameEntries
+      ? creature.firstNameEntries.map((entry) => ({ ...entry }))
+      : undefined,
     lastName: creature?.lastName ?? "",
+    lastNameEntries: creature?.lastNameEntries
+      ? creature.lastNameEntries.map((entry) => ({ ...entry }))
+      : undefined,
     tag: source.tag,
     race: creature?.race ?? CREATURE_RACE_OPTIONS[0]!,
     appearance: creature?.appearance ?? source.resRef,
@@ -2272,6 +2323,9 @@ export function buildCreaturePropertiesDraft(
     gender: creature?.gender ?? "",
     genderId: creature?.genderId,
     description: creature?.description ?? "",
+    descriptionEntries: creature?.descriptionEntries
+      ? creature.descriptionEntries.map((entry) => ({ ...entry }))
+      : undefined,
     challengeRating: creature?.challengeRating ?? 1,
     portraitResRef: creature?.portraitResRef ?? "",
     portraitId: creature?.portraitId,
@@ -2283,6 +2337,21 @@ export function buildCreaturePropertiesDraft(
       creature?.classIdentityDestructiveSpellClearConfirmed ?? false,
     classSlotResizeDestructiveRemovalConfirmed:
       creature?.classSlotResizeDestructiveRemovalConfirmed ?? false,
+    classSpellClearSlotIndices: creature?.classSpellClearSlotIndices
+      ? [...creature.classSpellClearSlotIndices]
+      : [],
+    classSpellClearConfirmed: creature?.classSpellClearConfirmed ?? false,
+    classSpellRemovalTargets: creature?.classSpellRemovalTargets
+      ? creature.classSpellRemovalTargets.map((target) => ({ ...target }))
+      : [],
+    classSpellRemovalConfirmed: creature?.classSpellRemovalConfirmed ?? false,
+    classSpellReorders: creature?.classSpellReorders
+      ? creature.classSpellReorders.map((reorder) => ({
+          ...reorder,
+          entryOrder: [...reorder.entryOrder],
+        }))
+      : [],
+    classSpellReorderConfirmed: creature?.classSpellReorderConfirmed ?? false,
     templateEntries: creature?.templateEntries
       ? creature.templateEntries.map((entry) => ({ ...entry }))
       : [],
@@ -2467,6 +2536,8 @@ export function arePlaceablePropertiesDraftsEqual(
 ): boolean {
   return (
     left.name === right.name &&
+    stableJsonStringify(left.localizedNameEntries) ===
+      stableJsonStringify(right.localizedNameEntries) &&
     left.tag === right.tag &&
     left.resRef === right.resRef &&
     left.appearanceType === right.appearanceType &&
@@ -2489,6 +2560,8 @@ export function arePlaceablePropertiesDraftsEqual(
     arePlaceableTrapSettingsEqual(left.trapSettings, right.trapSettings) &&
     arePlaceableAdvancedSettingsEqual(left.advancedSettings, right.advancedSettings) &&
     left.description === right.description &&
+    stableJsonStringify(left.descriptionEntries) ===
+      stableJsonStringify(right.descriptionEntries) &&
     left.comments === right.comments
   );
 }

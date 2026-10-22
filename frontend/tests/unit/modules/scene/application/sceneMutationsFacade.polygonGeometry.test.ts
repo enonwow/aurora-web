@@ -704,6 +704,81 @@ describe("sceneMutationsFacade polygon geometry", () => {
     )).toBe(missingProvenanceScene);
   });
 
+  it("changes only the exact retained Trigger core-properties tuple", () => {
+    const object = polygonObject("triggers");
+    const scene = polygonScene(object);
+    const target = {
+      ...object.triggerCoreProperties!,
+      autoRemoveKey: 1 as const,
+      keyName: "target_key",
+      triggerType: -1,
+    };
+    const facade = createSceneMutationsFacade();
+    const next = facade.setExistingTriggerCorePropertiesById(
+      scene,
+      object.id,
+      target,
+    );
+
+    expect(next).not.toBe(scene);
+    expect(next.objects[0]?.triggerCoreProperties).toEqual(target);
+    expect(next.objects[0]?.triggerCoreProperties).not.toBe(target);
+    expect(next.objects[0]?.source?.triggerCoreProperties).toEqual(
+      object.source?.triggerCoreProperties,
+    );
+    expect(facade.setExistingTriggerCorePropertiesById(
+      scene,
+      object.id,
+      { ...target, cursorId: 256 },
+    )).toBe(scene);
+    const missingProvenanceScene = polygonScene({
+      ...object,
+      source: { ...object.source!, triggerCoreProperties: undefined },
+    });
+    expect(facade.setExistingTriggerCorePropertiesById(
+      missingProvenanceScene,
+      object.id,
+      target,
+    )).toBe(missingProvenanceScene);
+  });
+
+  it("changes only the exact retained Trigger trap-properties tuple", () => {
+    const object = polygonObject("triggers");
+    const scene = polygonScene(object);
+    const target = {
+      ...object.triggerTrapProperties!,
+      trapFlag: 1,
+      trapType: 7,
+    };
+    const facade = createSceneMutationsFacade();
+    const next = facade.setExistingTriggerTrapPropertiesById(
+      scene,
+      object.id,
+      target,
+    );
+
+    expect(next).not.toBe(scene);
+    expect(next.objects[0]?.triggerTrapProperties).toEqual(target);
+    expect(next.objects[0]?.triggerTrapProperties).not.toBe(target);
+    expect(next.objects[0]?.source?.triggerTrapProperties).toEqual(
+      object.source?.triggerTrapProperties,
+    );
+    expect(facade.setExistingTriggerTrapPropertiesById(
+      scene,
+      object.id,
+      { ...target, trapType: 256 },
+    )).toBe(scene);
+    const missingProvenanceScene = polygonScene({
+      ...object,
+      source: { ...object.source!, triggerTrapProperties: undefined },
+    });
+    expect(facade.setExistingTriggerTrapPropertiesById(
+      missingProvenanceScene,
+      object.id,
+      target,
+    )).toBe(missingProvenanceScene);
+  });
+
   it("changes only one exact retained paired-GIC Encounter Comment", () => {
     const object = polygonObject("encounters");
     const scene = polygonScene(object);
@@ -1019,6 +1094,8 @@ function polygonObject(kind: "triggers" | "encounters"): SceneObject {
             linkedToFlags: 2,
             loadScreenId: 7,
           },
+          triggerCoreProperties: triggerCoreProperties(),
+          triggerTrapProperties: triggerTrapProperties(),
         }
         : {
           encounterTag: { present: true as const, value: "ENCOUNTER" },
@@ -1116,6 +1193,8 @@ function polygonObject(kind: "triggers" | "encounters"): SceneObject {
             linkedToFlags: 2,
             loadScreenId: 7,
           },
+          triggerCoreProperties: triggerCoreProperties(),
+          triggerTrapProperties: triggerTrapProperties(),
         }
       : {}),
     ...(kind === "encounters"
@@ -1165,6 +1244,30 @@ function polygonObject(kind: "triggers" | "encounters"): SceneObject {
           },
         }
       : {}),
+  };
+}
+
+function triggerCoreProperties() {
+  return {
+    autoRemoveKey: 0 as const,
+    factionId: 1,
+    cursorId: 2,
+    highlightHeight: Math.fround(1.5),
+    keyName: "source_key",
+    portraitId: 3,
+    triggerType: 0,
+  };
+}
+
+function triggerTrapProperties() {
+  return {
+    trapDetectable: 1,
+    trapDetectDc: 0,
+    trapDisarmable: 1,
+    disarmDc: 15,
+    trapFlag: 0,
+    trapOneShot: 1,
+    trapType: 0,
   };
 }
 
