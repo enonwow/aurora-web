@@ -26,6 +26,18 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
 const [command, ...argv] = process.argv.slice(2);
+if(String(command??'').startsWith('continue-pre-area-hidden-frame')){
+  const {runHiddenFrameCommand}=await import('./lib/aurora-hidden-pre-area-public.mjs');
+  const result=runHiddenFrameCommand(command,argv);print(result);process.exit(result.ok?0:2);
+}
+// Saved-file inspection must never enter the native preflight/error handler,
+// including malformed or currently unsupported entry-surface commands.
+if (String(command ?? "").startsWith("geometry-entry-surface-") || command === "geometry-finalize" || command === "validate-geometry") {
+  const { runEntrySurfaceInspectCommand } = await import("./lib/aurora-binary-entry-surface-inspection.mjs");
+  const result = runEntrySurfaceInspectCommand(command, argv);
+  print(result);
+  process.exit(result.ok ? 0 : 2);
+}
 const options = parseArgs(argv);
 const profilePath = requiredPath(options.profile, "--profile");
 const outDir = requiredPath(options.outDir, "--outDir");
@@ -36,6 +48,9 @@ const installedModulePath = options.installedModulePath
   ? requiredPath(options.installedModulePath, "--installedModulePath")
   : null;
 const manifestPath = resolve(outDir, "binary-native-geometry-manifest.json");
+const hiddenResumeAttempt = command==='geometry-observe'&&existsSync(resolve(outDir,'hidden-pre-area-v1','intent.json'));
+let hiddenAreaContext=null;
+let finishHiddenArea=null;
 const canonicalModuleOpenSessionGuardPath = resolve(
   root,
   "backend",
@@ -51,9 +66,19 @@ const EXPLICIT_OPEN_STARTUP_ADMISSION_V2 = "aurora-toolset-explicit-open-startup
 const EXPLICIT_OPEN_STARTUP_ADMISSION_VERSION = "aurora-toolset-explicit-open-startup-admission/v3";
 
 try {
+  if(hiddenResumeAttempt){
+    const continuation=await import('./lib/aurora-hidden-pre-area-workflow.mjs');
+    const {hiddenFrameNativePorts}=await import('./lib/aurora-hidden-pre-area-public.mjs');
+    finishHiddenArea=continuation.finishHiddenFrameArea;
+    hiddenAreaContext=continuation.beginHiddenFrameArea({profilePath,outDir},hiddenFrameNativePorts());
+  }
   const result = run(command);
   print(result);
 } catch (error) {
+  if(hiddenAreaContext&&finishHiddenArea){
+    try { finishHiddenArea(hiddenAreaContext,{status:'failed',code:error.code??'HIDDEN_AREA_FAILED',message:String(error.message).slice(0,2000)}); }
+    catch(receiptError){ error.continuationReceiptError=String(receiptError.message).slice(0,1000); }
+  }
   const postFailureProcesses = toolsetProcessesSafe();
   const postFailureWindows = postFailureProcesses.length === 1 ? visibleWindowsSafe() : [];
   const result = {
@@ -69,7 +94,7 @@ try {
     postFailureProcesses,
     postFailureWindows,
   };
-  if (existsSync(manifestPath) && !isFailedStartupRestartCommand(command) && !String(command ?? "").endsWith("-dry-run")) {
+  if (existsSync(manifestPath) && !hiddenResumeAttempt && !isFailedStartupRestartCommand(command) && !String(command ?? "").endsWith("-dry-run")) {
     const manifest = readJson(manifestPath);
     manifest.status = "failed";
     manifest.blockerCode = result.blockerCode;
@@ -1455,14 +1480,20 @@ function resumeModelFixtureCleanNoopAreaProperties(dryRun) {
 }
 
 function observeGeometry(area) {
-  const manifest = requireManifest("module_ready");
+  const manifest = hiddenAreaContext?.manifest ?? requireManifest("module_ready");
   const processes = toolsetProcesses();
   if (processes.length !== 1 || processes[0].Responding !== true) fail("BINARY_NATIVE_GEOMETRY_REQUIRES_ONE_RESPONSIVE_OWNED_PROCESS", JSON.stringify(processes));
-  const queuePath = resolve(outDir, "binary-native-area-queue.json");
+  if(hiddenAreaContext&&(processes[0].Id!==hiddenAreaContext.owner.pid||processes[0].StartTimeUtc!==hiddenAreaContext.owner.startedAtUtc))fail('HIDDEN_AREA_OWNER_DRIFT','Owner changed after resume admission.');
+  const queuePath = hiddenAreaContext?.queuePath ?? resolve(outDir, "binary-native-area-queue.json");
+  const areaOutDir=hiddenAreaContext?.areaOutDir ?? resolve(outDir,'area-open');
   writeJson(queuePath, [{ name: area.displayName, resref: profile.area.resref }]);
-  const queue = runAtom("run-toolset-area-oracle-queue.mjs", ["--queue", queuePath, "--expectedModule", `${profile.module.resref}.mod`, "--expectedModuleParts", `${profile.module.resref}|mod`, "--outDir", resolve(outDir, "area-open"), "--capture", "false"], 120000);
+  const owner=hiddenAreaContext?.owner;
+  const queue = runAtom("run-toolset-area-oracle-queue.mjs", ["--queue", queuePath, "--expectedModule", `${profile.module.resref}.mod`, "--expectedModuleParts", `${profile.module.resref}|mod`, "--outDir", areaOutDir, "--capture", "false"], 120000,owner?{
+    AURORA_TOOLSET_EXPECTED_OWNER_PID:String(owner.pid),AURORA_TOOLSET_EXPECTED_OWNER_START:owner.startedAtUtc,
+    AURORA_TOOLSET_EXPECTED_OWNER_FRAME:String(owner.frameHwnd),AURORA_TOOLSET_EXPECTED_OWNER_TITLE:owner.title,
+  }:{});
   if (queue.status !== "completed") fail("BINARY_NATIVE_GEOMETRY_AREA_OPEN_UNVERIFIED", JSON.stringify(queue));
-  const queueManifest = readJson(resolve(outDir, "area-open", "manifest.json"));
+  const queueManifest = readJson(resolve(areaOutDir, "manifest.json"));
   const opened = queueManifest.items?.find((item) => item.status === "opened" && item.area?.resref === profile.area.resref && item.area?.name === area.displayName);
   if (!opened) fail("BINARY_NATIVE_GEOMETRY_AREA_IDENTITY_UNVERIFIED", JSON.stringify(queueManifest));
 
@@ -1486,7 +1517,9 @@ function observeGeometry(area) {
   if (!nativeSave.areaWasSaved || nativeSave.invalidLocationsDialog || nativeSave.inaccessibleObjectsDialog) fail("area_geometry_invalid", JSON.stringify(nativeSave));
 
   const postSaveProfile = JSON.parse(JSON.stringify(profile));
-  postSaveProfile.module.sha256 = sha256(profile.module.path);
+  const postSaveModuleBytes = readFileSync(profile.module.path);
+  postSaveProfile.module.sha256 = createHash("sha256").update(postSaveModuleBytes).digest("hex");
+  postSaveProfile.module.bytes = postSaveModuleBytes.length;
   const stagedProfilePath = resolve(outDir, "post-native-save-binary-bootstrap-profile.json");
   writeJson(stagedProfilePath, postSaveProfile);
   const postSaveStructural = atom("validate-aurora-toolset-binary-module-bootstrap.mjs", ["--mode", "preflight", "--profile", stagedProfilePath]);
@@ -1499,7 +1532,7 @@ function observeGeometry(area) {
     manifest.postSaveStructural = postSaveStructural;
     manifest.nativeGitReadback = git;
     manifest.nativeEntryReadback = entry;
-    manifest.queue = { path: queuePath, manifestPath: resolve(outDir, "area-open", "manifest.json") };
+    manifest.queue = { path: queuePath, manifestPath: resolve(areaOutDir, "manifest.json") };
     manifest.updatedAt = new Date().toISOString();
     writeJson(manifestPath, manifest);
     return {
@@ -1520,9 +1553,10 @@ function observeGeometry(area) {
   manifest.postSaveStructural = postSaveStructural;
   manifest.nativeGitReadback = git;
   manifest.nativeEntryReadback = entry;
-  manifest.queue = { path: queuePath, manifestPath: resolve(outDir, "area-open", "manifest.json") };
+  manifest.queue = { path: queuePath, manifestPath: resolve(areaOutDir, "manifest.json") };
   manifest.updatedAt = new Date().toISOString();
   writeJson(manifestPath, manifest);
+  if(hiddenAreaContext)finishHiddenArea(hiddenAreaContext,{status:'geometry_saved_pending_entry_observation',manifestPath});
   return {
     ok: true, command: "geometry-observe", status: "geometry_saved_pending_entry_observation", manifestPath,
     entrySurfaceRequest: { moduleSha256: postSaveProfile.module.sha256, area: entry.area, entry: entry.position },
@@ -1594,7 +1628,7 @@ function baseManifest(area) { return { version: "aurora-toolset-binary-native-ge
 function requireManifest(status) { if (!existsSync(manifestPath)) fail("BINARY_NATIVE_GEOMETRY_MANIFEST_MISSING", manifestPath); const value = readJson(manifestPath); if (value.status !== status || value.profileSha256 !== sha256(profilePath)) fail("BINARY_NATIVE_GEOMETRY_MANIFEST_STATE_INVALID", JSON.stringify({ expected: status, actual: value.status })); return value; }
 function assertNoToolsetProcess() { const processes = toolsetProcesses(); if (processes.length !== 0) fail("STALE_TOOLSET_SESSION_REJECTED", JSON.stringify({ processes, message: "This binary route never reuses a pre-existing Toolset session; preserve it and start no second process." })); }
 function assertNoNwnProcess() { const processes = nwnProcesses(); if (processes.length !== 0) fail("STALE_NWN_SESSION_REJECTED", JSON.stringify({ processes, message: "The failed-startup archive transition requires zero NWN processes; it never reuses or closes one." })); }
-function toolsetProcesses() { const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", "@(Get-Process nwtoolset -ErrorAction SilentlyContinue | Select-Object Id,StartTime,MainWindowTitle,Responding) | ConvertTo-Json -Compress"], { encoding: "utf8", windowsHide: true, timeout: 15000 }).trim(); if (!raw) return []; const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : [parsed]; }
+function toolsetProcesses() { const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", "@(Get-Process nwtoolset -ErrorAction SilentlyContinue | Select-Object Id,StartTime,@{Name='StartTimeUtc';Expression={$_.StartTime.ToUniversalTime().ToString('o')}},MainWindowTitle,Responding) | ConvertTo-Json -Compress"], { encoding: "utf8", windowsHide: true, timeout: 15000 }).trim(); if (!raw) return []; const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : [parsed]; }
 function nwnProcesses() { const raw = execFileSync("powershell.exe", ["-NoProfile", "-Command", "@(Get-Process nwmain -ErrorAction SilentlyContinue | Select-Object Id,StartTime,MainWindowTitle,Responding) | ConvertTo-Json -Compress"], { encoding: "utf8", windowsHide: true, timeout: 15000 }).trim(); if (!raw) return []; const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : [parsed]; }
 function toolsetProcessesSafe() { try { return toolsetProcesses(); } catch (error) { return [{ inspectionError: String(error?.message ?? error) }]; } }
 function visibleWindowsSafe() { const result = runAtomResult("inspect-aurora-toolset-visible-windows-no-global-input.mjs", []); return result.ok === true ? result : { inspectionError: result }; }

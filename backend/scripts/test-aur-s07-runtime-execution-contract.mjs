@@ -181,6 +181,115 @@ try {
   const restoreSource = readFileSync(resolve("backend/scripts/restore-aurora-toolset-frame-noactivate.mjs"), "utf8");
   assert.match(restoreSource, /SW_SHOWNOACTIVATE/u); assert.match(restoreSource, /expected_one_nonprimary_screen/u); assert.match(restoreSource, /0x0014/u);
   assert.doesNotMatch(restoreSource, /SetForegroundWindow|BringWindowToTop|SendInput|SetCursorPos/u);
+  verifyRestorePlacementDecisions(restoreSource);
+  verifyRestoreMaximizedState(restoreSource);
 } finally { rmSync(dir, { recursive: true, force: true }); }
 
 function runJson(args) { return JSON.parse(execFileSync(process.execPath, args, { encoding: "utf8" })); }
+
+function verifyRestorePlacementDecisions(restoreSource) {
+  // Execute the production PowerShell decision, with synthetic monitors and a
+  // SetWindowPos recorder. No Win32 imports or live window APIs are loaded.
+  const block = restoreSource.match(/if\(\$env:AFR_ENSURE_NONPRIMARY[^]*?(?=\$afterBounds=Rect)/u)?.[0];
+  assert.ok(block, "production placement decision must be available");
+  const work = { Left: -1920, Top: 0, Right: 0, Bottom: 1032, Width: 1920, Height: 1032 };
+  const nonPrimary = { Primary: false, Bounds: { Left: -1920, Top: 0 }, WorkingArea: work };
+  const primary = { Primary: true, Bounds: { Left: 0, Top: 0 }, WorkingArea: { Left: 0, Top: 0, Right: 1920, Bottom: 1032, Width: 1920, Height: 1032 } };
+  const overflow = { left: -1928, top: -8, right: 8, bottom: 1040, width: 1936, height: 1048 };
+  const contained = { left: -1800, top: 20, right: -200, bottom: 920, width: 1600, height: 900 };
+  const cases = [
+    { name: "primary", current: primary, bounds: { left: 0, top: 0, right: 1600, bottom: 900, width: 1600, height: 900 }, screens: [primary, nonPrimary] },
+    { name: "nonprimary_overflow", current: nonPrimary, bounds: overflow, screens: [primary, nonPrimary] },
+    { name: "contained", current: nonPrimary, bounds: contained, screens: [primary, nonPrimary] },
+    { name: "target_absent", current: primary, bounds: contained, screens: [primary] },
+    { name: "targets_multiple", current: nonPrimary, bounds: overflow, screens: [primary, nonPrimary, nonPrimary] },
+    { name: "placement_disabled", current: nonPrimary, bounds: overflow, screens: [primary, nonPrimary], ensure: false },
+  ];
+  const harness = String.raw`
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+namespace Windows.Forms { public static class Screen { public static object[] AllScreens; } }
+public static class AuroraFrameRestore {
+ public static int Calls; public static int[] Last;
+ public static bool SetWindowPos(IntPtr h,IntPtr a,int x,int y,int w,int z,uint f) { Calls++; Last=new[]{x,y,w,z,(int)f}; return true; }
+}
+
+
+'@
+function Start-Sleep { param([int]$Milliseconds) }
+$results=@(foreach($case in ($env:AFR_TEST_CASES|ConvertFrom-Json)) {
+ $current=$case.current;$currentBounds=$case.bounds;[Windows.Forms.Screen]::AllScreens=@($case.screens)
+ $env:AFR_ENSURE_NONPRIMARY=if($case.ensure-eq$false){'false'}else{'true'}
+ $frame=[IntPtr]123;$placed=$false;[AuroraFrameRestore]::Calls=0;[AuroraFrameRestore]::Last=$null;$failure=$null
+ try {
+${block}
+ } catch { $failure=$_.Exception.Message }
+ [pscustomobject]@{name=$case.name;placed=$placed;calls=[AuroraFrameRestore]::Calls;placement=[AuroraFrameRestore]::Last;failure=$failure}
+})
+ConvertTo-Json -InputObject $results -Depth 6 -Compress
+`;
+  const results = JSON.parse(execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", harness], {
+    encoding: "utf8", windowsHide: true, timeout: 20_000,
+    env: { ...process.env, AFR_TEST_CASES: JSON.stringify(cases) },
+  }));
+  assert.deepEqual(results.map(({ name, calls, failure }) => ({ name, calls, failure })), [
+    { name: "primary", calls: 1, failure: null },
+    { name: "nonprimary_overflow", calls: 1, failure: null },
+    { name: "contained", calls: 0, failure: null },
+    { name: "target_absent", calls: 0, failure: "expected_one_nonprimary_screen:0" },
+    { name: "targets_multiple", calls: 0, failure: "expected_one_nonprimary_screen:2" },
+    { name: "placement_disabled", calls: 0, failure: null },
+  ]);
+  assert.deepEqual(results[0].placement, [-1920, 0, 1600, 900, 0x0014]);
+  assert.deepEqual(results[1].placement, [-1920, 0, 1920, 1032, 0x0014]);
+  assert.deepEqual(results.map(({ placed }) => placed), [true, true, false, false, false, false]);
+}
+
+function verifyRestoreMaximizedState(restoreSource) {
+  const block = restoreSource.match(/\$restored=\$false;\$placed=\$false[^]*?(?=\$current=\[Windows.Forms.Screen\])/u)?.[0];
+  assert.ok(block, "production restore block must be available");
+  const cases = [
+    { name: "maximized", visible: true, maximized: true, ensure: true },
+    { name: "normal", visible: true, maximized: false, ensure: true },
+    { name: "hidden", visible: false, maximized: true, ensure: true },
+    { name: "disabled", visible: true, maximized: true, ensure: false },
+    { name: "stuck_maximized", visible: true, maximized: true, ensure: true, noEffect: true },
+  ];
+  const harness = String.raw`
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public static class AuroraFrameRestore {
+ public static bool Visible, Maximized, NoEffect; public static int Calls, Command;
+ public static bool IsWindowVisible(IntPtr h) { return Visible; }
+ public static bool IsIconic(IntPtr h) { return false; }
+ public static bool IsZoomed(IntPtr h) { return Maximized; }
+ public static bool ShowWindow(IntPtr h,int command) { Calls++; Command=command; bool wasVisible=Visible; if(!NoEffect) { Visible=true; Maximized=false; } return wasVisible; }
+}
+'@
+function Start-Sleep { param([int]$Milliseconds) }
+$results=@(foreach($case in ($env:AFR_TEST_CASES|ConvertFrom-Json)) {
+ [AuroraFrameRestore]::Visible=$case.visible;[AuroraFrameRestore]::Maximized=$case.maximized;[AuroraFrameRestore]::NoEffect=[bool]$case.noEffect
+ [AuroraFrameRestore]::Calls=0;[AuroraFrameRestore]::Command=0;$frame=[IntPtr]123;$failure=$null
+ $before=[pscustomobject]@{visible=[AuroraFrameRestore]::IsWindowVisible($frame);maximized=[AuroraFrameRestore]::IsZoomed($frame)}
+ $env:AFR_ENSURE_NONPRIMARY=([string]$case.ensure).ToLowerInvariant()
+ try {
+${block}
+ } catch { $failure=$_.Exception.Message }
+ [pscustomobject]@{name=$case.name;calls=[AuroraFrameRestore]::Calls;command=[AuroraFrameRestore]::Command;restored=$restored;maximized=[AuroraFrameRestore]::IsZoomed($frame);failure=$failure}
+})
+ConvertTo-Json -InputObject $results -Depth 6 -Compress
+`;
+  const results = JSON.parse(execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", harness], {
+    encoding: "utf8", windowsHide: true, timeout: 20_000,
+    env: { ...process.env, AFR_TEST_CASES: JSON.stringify(cases) },
+  }));
+  assert.deepEqual(results, [
+    { name: "maximized", calls: 1, command: 4, restored: true, maximized: false, failure: null },
+    { name: "normal", calls: 0, command: 0, restored: false, maximized: false, failure: null },
+    { name: "hidden", calls: 1, command: 4, restored: true, maximized: false, failure: null },
+    { name: "disabled", calls: 0, command: 0, restored: false, maximized: true, failure: null },
+    { name: "stuck_maximized", calls: 1, command: 4, restored: true, maximized: true, failure: "frame_show_noactivate_failed" },
+  ]);
+}

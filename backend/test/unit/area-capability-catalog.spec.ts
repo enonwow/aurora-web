@@ -113,7 +113,7 @@ describe("area-capabilities.v1", () => {
     expect(catalog.items.every((item) => Object.isFrozen(item))).toBe(true);
     expect(Object.isFrozen(catalog.items)).toBe(true);
     expect(Object.isFrozen(catalog)).toBe(true);
-    expect(catalog.catalogRevision).toBe("2026-09-02.177");
+    expect(catalog.catalogRevision).toBe("2026-09-02.178");
     expect(catalog.summary.implementation).toEqual({
       implemented: 52,
       partial: 25,
@@ -204,6 +204,9 @@ describe("area-capabilities.v1", () => {
           "backend/test/unit/area-trigger-script-resrefs.spec.ts",
           "backend/test/unit/area-trigger-script-resrefs-parser.spec.ts",
           "backend/test/unit/area-update-draft-projector.trigger-script-resrefs.spec.ts",
+          "backend/test/unit/area-trigger-transition-storage.spec.ts",
+          "backend/test/unit/area-trigger-transition-storage-parser.spec.ts",
+          "backend/test/unit/area-update-draft-projector.trigger-transition-storage.spec.ts",
           "frontend/tests/unit/modules/scene/domain/triggerTemplateResRef.test.ts",
           "frontend/tests/unit/modules/layout/application/triggerTemplateResRefProvenance.test.ts",
           "frontend/tests/unit/modules/layout/workspaceSceneObjectClone.triggerTemplateResRef.test.ts",
@@ -216,6 +219,9 @@ describe("area-capabilities.v1", () => {
           "frontend/tests/unit/modules/scene/domain/triggerScriptResRefs.test.ts",
           "frontend/tests/unit/modules/layout/application/triggerScriptResRefsProvenance.test.ts",
           "frontend/tests/unit/modules/layout/workspaceSceneObjectClone.triggerScripts.test.ts",
+          "frontend/tests/unit/modules/scene/domain/triggerTransitionStorage.test.ts",
+          "frontend/tests/unit/modules/layout/application/triggerTransitionStorageProvenance.test.ts",
+          "frontend/tests/unit/modules/layout/workspaceSceneObjectClone.triggerTransitionStorage.test.ts",
           "frontend/tests/regression-smoke/workspace/Workspace.trigger-tag.regression-smoke.test.tsx",
         ]),
         proofIds: [
@@ -224,9 +230,10 @@ describe("area-capabilities.v1", () => {
           "backend/docs/aurora-reverse/area-existing-trigger-localized-name-audit-v1-2026-09-02.md",
           "backend/docs/aurora-reverse/area-existing-trigger-editor-comment-audit-v1-2026-09-02.md",
           "backend/docs/aurora-reverse/area-existing-trigger-script-resrefs-audit-v1-2026-09-02.md",
+          "backend/docs/aurora-reverse/area-existing-trigger-transition-storage-audit-v1-2026-09-02.md",
         ],
         blockers: [
-          "trigger_remaining_properties_links_variables_activation_pending",
+          "trigger_remaining_properties_variables_activation_pending",
           "browser_trigger_template_resref_readback_proof_pending",
           "native_toolset_trigger_template_resref_save_build_reopen_pending",
           "nwn_trigger_template_resref_runtime_proof_pending",
@@ -238,7 +245,9 @@ describe("area-capabilities.v1", () => {
           "browser_trigger_script_resrefs_readback_proof_pending",
           "native_toolset_trigger_script_resrefs_save_build_reopen_pending",
           "nwn_trigger_event_dispatch_proof_pending",
-          "transition_runtime_pending",
+          "browser_trigger_transition_storage_readback_proof_pending",
+          "native_toolset_trigger_transition_storage_save_build_reopen_pending",
+          "nwn_trigger_transition_runtime_proof_pending",
         ],
       });
     expect(catalog.items.find((item) => item.id === "objects_waypoint_authoring"))

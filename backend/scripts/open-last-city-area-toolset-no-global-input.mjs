@@ -281,6 +281,22 @@ if ($toolsetWindows.Count -eq 0) {
 }
 $window = $toolsetWindows[0]
 
+# Optional exact owner contract supplied only by the central pre-Area resume.
+function Assert-ExpectedAreaOwner {
+  $identity=@($env:AURORA_TOOLSET_EXPECTED_OWNER_PID,$env:AURORA_TOOLSET_EXPECTED_OWNER_START,$env:AURORA_TOOLSET_EXPECTED_OWNER_FRAME,$env:AURORA_TOOLSET_EXPECTED_OWNER_TITLE)
+  if(@($identity|Where-Object{-not[String]::IsNullOrEmpty($_)}).Count-eq0){return}
+  if(@($identity|Where-Object{[String]::IsNullOrEmpty($_)}).Count-ne0){throw 'area_owner_identity_incomplete'}
+  $current=@(Get-Process nwtoolset -ErrorAction SilentlyContinue)
+  if($current.Count-ne1-or-not$current[0].Responding-or$current[0].Id-ne[long]$env:AURORA_TOOLSET_EXPECTED_OWNER_PID-or$current[0].StartTime.ToUniversalTime().ToString('o')-cne$env:AURORA_TOOLSET_EXPECTED_OWNER_START){throw 'area_owner_identity_drift'}
+  if(@(Get-Process nwmain -ErrorAction SilentlyContinue).Count-ne0){throw 'area_owner_nwn_present'}
+  [uint32]$currentWindowOwner=0;[void][ToolsetTreeOpen]::GetWindowThreadProcessId($window.hwnd,[ref]$currentWindowOwner)
+  if($toolsetWindows.Count-ne1-or$window.hwnd.ToInt64()-ne[long]$env:AURORA_TOOLSET_EXPECTED_OWNER_FRAME-or$currentWindowOwner-ne$current[0].Id-or-not[ToolsetTreeOpen]::IsWindowVisible($window.hwnd)-or(Get-WindowTextValue $window.hwnd)-cne$env:AURORA_TOOLSET_EXPECTED_OWNER_TITLE){throw 'area_owner_window_drift'}
+  $script:ownerModals=0
+  [void][ToolsetTreeOpen]::EnumWindows([ToolsetTreeOpen+EnumWindowsProc]{param($h,$l);[uint32]$q=0;[void][ToolsetTreeOpen]::GetWindowThreadProcessId($h,[ref]$q);$class=Get-ClassNameValue $h;if($q-eq[long]$env:AURORA_TOOLSET_EXPECTED_OWNER_PID-and[ToolsetTreeOpen]::IsWindowVisible($h)-and$class-ne'TfrmFrame'-and$class-ne'TApplication'){$script:ownerModals++};$true},[IntPtr]::Zero)
+  if($script:ownerModals-ne0){throw 'area_owner_modal_present'}
+}
+Assert-ExpectedAreaOwner
+
 $treeViews = New-Object System.Collections.Generic.List[object]
 $childEnum = [ToolsetTreeOpen+EnumWindowsProc]{
   param($hwnd, $lparam)
@@ -381,6 +397,7 @@ try {
     throw "Areas root not found in module contents tree. Roots: $sample"
   }
 
+  Assert-ExpectedAreaOwner
   [void][ToolsetTreeOpen]::SendMessage($tree, $TVM_EXPAND, [IntPtr]$TVE_EXPAND, $areasRoot)
   Start-Sleep -Milliseconds 250
 
@@ -402,6 +419,7 @@ try {
     throw "Area item not found among direct Areas children. Visited $($visited.Count) tree items. Sample: $sample"
   }
 
+  Assert-ExpectedAreaOwner
   [void][ToolsetTreeOpen]::SendMessage($tree, $TVM_SELECTITEM, [IntPtr]$TVGN_CARET, $found)
   [void][ToolsetTreeOpen]::SendMessage($tree, $TVM_ENSUREVISIBLE, [IntPtr]::Zero, $found)
   Start-Sleep -Milliseconds 150
@@ -409,10 +427,12 @@ try {
   $x = [Math]::Max(4, [Math]::Floor(($rect.left + $rect.right) / 2))
   $y = [Math]::Max(4, [Math]::Floor(($rect.top + $rect.bottom) / 2))
   $lp = New-LParam $x $y
+  Assert-ExpectedAreaOwner
   [void][ToolsetTreeOpen]::SendMessage($tree, $WM_LBUTTONDOWN, [IntPtr]$MK_LBUTTON, $lp)
   [void][ToolsetTreeOpen]::SendMessage($tree, $WM_LBUTTONUP, [IntPtr]::Zero, $lp)
   Start-Sleep -Milliseconds 80
   $areaOpenStartedAt = Get-Date
+  Assert-ExpectedAreaOwner
   [void][ToolsetTreeOpen]::SendMessage($tree, $WM_LBUTTONDBLCLK, [IntPtr]$MK_LBUTTON, $lp)
   [void][ToolsetTreeOpen]::SendMessage($tree, $WM_LBUTTONUP, [IntPtr]::Zero, $lp)
   $areaReady = Wait-ExpectedAreaViewer ([IntPtr][int64]$window.hwnd)

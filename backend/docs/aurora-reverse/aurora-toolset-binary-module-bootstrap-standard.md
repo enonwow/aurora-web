@@ -242,3 +242,34 @@ $env:AURORA_BINARY_BOOTSTRAP_INTEGRATION_PROFILE = '<caller-profile.json>'
 $env:AURORA_BINARY_BOOTSTRAP_INTEGRATION_CWD = '<consumer-project-root>'
 node backend/scripts/test-validate-aurora-toolset-binary-module-bootstrap-consumer-cwd.mjs
 ```
+# Isolated hidden pre-Area continuation, 2026-09-07
+
+Version `aurora-hidden-pre-area-continuation/v1` is implemented in the isolated
+`codex/native-hidden-pre-area-20260907` checkout. It is not deployed or live
+qualified by the offline tests. It applies only to a successful explicit Open
+followed by the Area queue's exact pre-dispatch `No visible Toolset module window`
+failure, with a hidden clean TfrmFrame and sole visible iconic TApplication.
+
+Public commands (absolute paths; use the actual still-owned run):
+
+```text
+node backend/scripts/aurora-toolset-binary-module-native-geometry.mjs continue-pre-area-hidden-frame-dry-run --profile <profile.json> --outDir <geometry-dir> --failure <failed-observe.json> --windows <recorded-windows.json>
+node backend/scripts/aurora-toolset-binary-module-native-geometry.mjs continue-pre-area-hidden-frame --profile <profile.json> --outDir <geometry-dir> --failure <failed-observe.json> --windows <recorded-windows.json>
+node backend/scripts/aurora-toolset-binary-module-native-geometry.mjs geometry-observe --profile <profile.json> --outDir <geometry-dir>
+```
+
+The dry-run is read-only. Its optional `--stateFixture` accepts only
+`aurora-hidden-pre-area-test-state/v1`; that result explicitly cannot admit live
+actions. Live commands reject this option. Before restore and Area dispatch,
+check the same PID, full seven-digit StartTime, frame/application HWNDs, clean
+module title, no modal, no existing Area and zero NWN. Use the existing
+SW_SHOWNOACTIVATE/SetWindowPos atom and require full non-primary DISPLAY1 bounds.
+No new process, Open, transport, or `$pid` workaround is introduced.
+
+`hidden-pre-area-v1/` reserves one attempt and preserves exact original evidence
+bytes, source/producer hashes, intent and before/after state. An incomplete
+directory, failed/partial restore or consumed Area intent refuses retry. The
+resumed Area queue writes in that subdirectory; the historical queue failure is
+preserved. Save/readback success may advance the root manifest with references
+to its original failure. This route does not repair or bypass downstream Save
+or S07 admission. A closed historical owner is never reusable.

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 
 const source = String.raw`
 $ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type @'
 using System;
 using System.Text;
@@ -23,16 +24,19 @@ public static class AuroraWindowTreeProbe {
 '@
 function Text([IntPtr]$h){$b=[Text.StringBuilder]::new(1024);[void][AuroraWindowTreeProbe]::GetWindowText($h,$b,$b.Capacity);$b.ToString()}
 function Class([IntPtr]$h){$b=[Text.StringBuilder]::new(256);[void][AuroraWindowTreeProbe]::GetClassName($h,$b,$b.Capacity);$b.ToString()}
-function Describe([IntPtr]$h,[string]$kind){$r=New-Object 'AuroraWindowTreeProbe+RECT';[void][AuroraWindowTreeProbe]::GetWindowRect($h,[ref]$r);[pscustomobject]@{kind=$kind;hwnd=$h.ToInt64();owner=([AuroraWindowTreeProbe]::GetWindow($h,4)).ToInt64();visible=[AuroraWindowTreeProbe]::IsWindowVisible($h);iconic=[AuroraWindowTreeProbe]::IsIconic($h);className=(Class $h);text=(Text $h);bounds=[pscustomobject]@{left=$r.Left;top=$r.Top;width=$r.Right-$r.Left;height=$r.Bottom-$r.Top}}}
+function Describe([IntPtr]$h,[string]$kind){$r=New-Object 'AuroraWindowTreeProbe+RECT';[void][AuroraWindowTreeProbe]::GetWindowRect($h,[ref]$r);[uint32]$ownerPid=0;[void][AuroraWindowTreeProbe]::GetWindowThreadProcessId($h,[ref]$ownerPid);$screen=[Windows.Forms.Screen]::FromHandle($h);[pscustomobject]@{kind=$kind;hwnd=$h.ToInt64();ownerPid=$ownerPid;screen=[pscustomobject]@{deviceName=$screen.DeviceName;primary=$screen.Primary;workingArea=[pscustomobject]@{left=$screen.WorkingArea.Left;top=$screen.WorkingArea.Top;width=$screen.WorkingArea.Width;height=$screen.WorkingArea.Height}};owner=([AuroraWindowTreeProbe]::GetWindow($h,4)).ToInt64();visible=[AuroraWindowTreeProbe]::IsWindowVisible($h);iconic=[AuroraWindowTreeProbe]::IsIconic($h);className=(Class $h);text=(Text $h);bounds=[pscustomobject]@{left=$r.Left;top=$r.Top;width=$r.Right-$r.Left;height=$r.Bottom-$r.Top}}}
 $processes=@(Get-Process nwtoolset -ErrorAction SilentlyContinue)
 if($processes.Count-ne1){throw "expected_one_toolset_process:$($processes.Count)"}
 [uint32]$targetPid=$processes[0].Id
+$startedAtUtc=$processes[0].StartTime.ToUniversalTime().ToString('o')
 $script:top=@()
 $topCallback=[AuroraWindowTreeProbe+EnumWindowsProc]{param($h,$l);[uint32]$p=0;[void][AuroraWindowTreeProbe]::GetWindowThreadProcessId($h,[ref]$p);if($p-eq$targetPid){$script:top += Describe $h 'top'};return $true}
 [void][AuroraWindowTreeProbe]::EnumWindows($topCallback,[IntPtr]::Zero)
 $script:children=@()
 foreach($window in $script:top){$childCallback=[AuroraWindowTreeProbe+EnumWindowsProc]{param($h,$l);$script:children += Describe $h 'child';return $true};[void][AuroraWindowTreeProbe]::EnumChildWindows([IntPtr]$window.hwnd,$childCallback,[IntPtr]::Zero)}
-[pscustomobject]@{processId=$targetPid;top=$script:top;children=$script:children;safety=[pscustomobject]@{readOnly=$true;usesGlobalCursor=$false;usesGlobalKeyboard=$false;usesGlobalMouse=$false}}|ConvertTo-Json -Depth 7 -Compress
+$after=@(Get-Process nwtoolset -ErrorAction SilentlyContinue);if($after.Count-ne1-or$after[0].Id-ne$targetPid-or$after[0].StartTime.ToUniversalTime().ToString('o')-cne$startedAtUtc){throw 'window_probe_owner_drift'}
+$nwn=@(Get-Process nwmain -ErrorAction SilentlyContinue|ForEach-Object{[pscustomobject]@{pid=$_.Id;startedAtUtc=$_.StartTime.ToUniversalTime().ToString('o')}})
+[pscustomobject]@{processId=$targetPid;startedAtUtc=$startedAtUtc;responding=$after[0].Responding;capturedAtUtc=[DateTime]::UtcNow.ToString('o');nwmain=$nwn;top=$script:top;children=$script:children;safety=[pscustomobject]@{readOnly=$true;usesGlobalCursor=$false;usesGlobalKeyboard=$false;usesGlobalMouse=$false}}|ConvertTo-Json -Depth 7 -Compress
 `;
 
 const output = execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", source], {

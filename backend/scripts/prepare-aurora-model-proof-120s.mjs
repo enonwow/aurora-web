@@ -13,6 +13,7 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateModelProofProfile } from "./lib/aurora-model-proof-120s-contract.mjs";
 import { loadRouteManifestWithSupersession } from "./lib/aurora-model-proof-120s-route-manifest-supersession.mjs";
+import { runEntryReopenCommand } from "./lib/aurora-binary-entry-reopen-public.mjs";
 import {
   bindExactNativeModuleList,
   classifyExactOpenDialogState,
@@ -42,6 +43,22 @@ let profilePath = null;
 let prepOutDir = null;
 
 try {
+  if (command?.startsWith("entry-reopen")) {
+    print(runEntryReopenCommand(command, argv, {
+      inspect: inspectHostState,
+      prepare: (entry) => {
+        const context = { ...entry, profile: entry.prepProfile,
+          outputLayout: validatePrepOutputLayout({ prepOutDir: entry.prepOutDir,
+            outputRoot: entry.prepProfile.outputRoot, lineageParent: entry.rootDir }) };
+        verifyImmutableInputs(context);
+        const state = inspectHostState();
+        const decision = decidePrepRoute(context, state);
+        if (decision.route !== "cold") fail("REOPEN_PROCESS_PRESENT", "Reopen requires zero Toolset/NWN; no switch or adopt.");
+        return prepare(context, state, decision);
+      },
+      producerEntryPath: fileURLToPath(import.meta.url),
+    }));
+  } else {
   const continuationDryRun = command === "continue-unexpected-module-window-dry-run";
   const continuationLive = command === "continue-unexpected-module-window";
   const continuationPreActionResumeDryRun = command === "continue-unexpected-module-window-pre-action-resume-dry-run";
@@ -183,6 +200,7 @@ try {
     } else {
       print(prepare(context, state, decision));
     }
+  }
   }
 } catch (error) {
   print({
